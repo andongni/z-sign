@@ -1,81 +1,100 @@
 <template>
   <el-container class="layout-container">
-    <el-aside width="250px" class="sidebar">
-      <div class="logo">
-        <h2>AI智能合同审核</h2>
+    <el-aside width="300px" class="sidebar">
+      <div class="brand">
+        <div class="brand-left">
+          <div class="brand-mark">
+            <el-icon><Connection /></el-icon>
+          </div>
+          <div class="brand-copy">
+            <div class="brand-name">智审</div>
+            <div class="brand-desc">合同审查工作台</div>
+          </div>
+        </div>
+        <el-button class="sidebar-toggle" text>
+          <el-icon><Fold /></el-icon>
+        </el-button>
       </div>
-      <el-menu
-        :default-active="activeMenu"
-        router
-        class="sidebar-menu"
-        background-color="#304156"
-        text-color="#bfcbd9"
-        active-text-color="#409EFF"
-      >
-        <el-menu-item index="/dashboard">
-          <el-icon><Odometer /></el-icon>
-          <span>仪表盘</span>
-        </el-menu-item>
-        <el-menu-item index="/contracts">
-          <el-icon><Document /></el-icon>
-          <span>合同管理</span>
-        </el-menu-item>
-        <el-menu-item index="/templates">
-          <el-icon><Files /></el-icon>
-          <span>模板库</span>
-        </el-menu-item>
-        <el-menu-item index="/reviews">
-          <el-icon><Search /></el-icon>
-          <span>合同审核</span>
-        </el-menu-item>
-        <el-menu-item index="/rules">
-          <el-icon><Setting /></el-icon>
-          <span>规则引擎</span>
-        </el-menu-item>
-        <el-menu-item index="/review-focus-config" v-if="userStore.user?.role === 'admin'">
-          <el-icon><Edit /></el-icon>
-          <span>审核重点配置</span>
-        </el-menu-item>
-        <el-menu-item index="/ai-model-config" v-if="userStore.user?.role === 'admin'">
-          <el-icon><Cpu /></el-icon>
-          <span>AI模型配置</span>
-        </el-menu-item>
-        <el-menu-item index="/ai-chat">
-          <el-icon><ChatDotRound /></el-icon>
-          <span>AI智能助手</span>
-        </el-menu-item>
-        <el-menu-item index="/rule-matches">
-          <el-icon><List /></el-icon>
-          <span>规则匹配记录</span>
-        </el-menu-item>
-        <el-menu-item index="/knowledge">
-          <el-icon><Connection /></el-icon>
-          <span>知识图谱</span>
-        </el-menu-item>
-        <el-menu-item index="/users" v-if="userStore.user?.role === 'admin'">
-          <el-icon><User /></el-icon>
-          <span>用户管理</span>
-        </el-menu-item>
-        <el-menu-item index="/departments" v-if="userStore.user?.role === 'admin'">
-          <el-icon><OfficeBuilding /></el-icon>
-          <span>部门管理</span>
-        </el-menu-item>
-        <el-menu-item index="/audit-logs" v-if="userStore.user?.role === 'admin'">
-          <el-icon><DocumentCopy /></el-icon>
-          <span>操作日志</span>
-        </el-menu-item>
-        <el-menu-item index="/permission-config" v-if="userStore.user?.role === 'admin'">
-          <el-icon><Lock /></el-icon>
-          <span>权限配置</span>
-        </el-menu-item>
-      </el-menu>
+
+      <el-scrollbar class="sidebar-scroll">
+        <el-menu
+          :default-active="activeMenu"
+          router
+          class="sidebar-menu"
+        >
+          <el-menu-item index="/dashboard">
+            <el-icon><Odometer /></el-icon>
+            <span>仪表盘</span>
+          </el-menu-item>
+          <el-menu-item index="/contracts">
+            <el-icon><Document /></el-icon>
+            <span>合同管理</span>
+          </el-menu-item>
+          <el-menu-item index="/templates">
+            <el-icon><Files /></el-icon>
+            <span>模板库</span>
+          </el-menu-item>
+          <el-menu-item index="/reviews">
+            <el-icon><Search /></el-icon>
+            <span>合同审核</span>
+          </el-menu-item>
+          <el-menu-item index="/rules">
+            <el-icon><Setting /></el-icon>
+            <span>规则引擎</span>
+          </el-menu-item>
+          <el-menu-item index="/review-focus-config" v-if="userStore.user?.role === 'admin'">
+            <el-icon><Edit /></el-icon>
+            <span>审核重点配置</span>
+          </el-menu-item>
+          <el-menu-item index="/ai-model-config" v-if="userStore.user?.role === 'admin'">
+            <el-icon><Cpu /></el-icon>
+            <span>AI模型配置</span>
+          </el-menu-item>
+          <el-menu-item index="/ai-chat">
+            <el-icon><ChatDotRound /></el-icon>
+            <span>AI智能助手</span>
+          </el-menu-item>
+          <el-menu-item index="/rule-matches">
+            <el-icon><List /></el-icon>
+            <span>规则匹配记录</span>
+          </el-menu-item>
+          <el-menu-item index="/knowledge">
+            <el-icon><Connection /></el-icon>
+            <span>知识库</span>
+          </el-menu-item>
+          <el-menu-item index="/users" v-if="userStore.user?.role === 'admin'">
+            <el-icon><User /></el-icon>
+            <span>用户管理</span>
+          </el-menu-item>
+          <el-menu-item index="/departments" v-if="userStore.user?.role === 'admin'">
+            <el-icon><OfficeBuilding /></el-icon>
+            <span>部门管理</span>
+          </el-menu-item>
+          <el-menu-item index="/audit-logs" v-if="userStore.user?.role === 'admin'">
+            <el-icon><DocumentCopy /></el-icon>
+            <span>操作日志</span>
+          </el-menu-item>
+          <el-menu-item index="/permission-config" v-if="userStore.user?.role === 'admin'">
+            <el-icon><Lock /></el-icon>
+            <span>权限配置</span>
+          </el-menu-item>
+        </el-menu>
+      </el-scrollbar>
+
     </el-aside>
-    <el-container>
+    <el-container class="content-shell">
       <el-header class="header">
         <div class="header-left">
-          <h3>{{ pageTitle }}</h3>
+          <div class="page-tabs">
+            <strong>{{ pageTitle }}</strong>
+            <span class="tab-divider"></span>
+            <span>{{ moduleTitle }}</span>
+          </div>
         </div>
         <div class="header-right">
+          <el-button class="language-button">
+            中
+          </el-button>
           <el-dropdown @command="handleCommand" trigger="click">
             <span class="user-info">
               <el-icon><User /></el-icon>
@@ -142,7 +161,7 @@ import { computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, OfficeBuilding, DocumentCopy, Edit, Cpu, RefreshRight, Close, SwitchButton, Lock, ChatDotRound, List } from '@element-plus/icons-vue'
+import { ArrowDown, OfficeBuilding, DocumentCopy, Edit, Cpu, RefreshRight, Close, SwitchButton, Lock, ChatDotRound, List, Fold } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -154,7 +173,12 @@ const recentUsersList = computed(() => {
   return userStore.recentUsers.filter(u => u.id !== userStore.user?.id)
 })
 
-const activeMenu = computed(() => route.path)
+const activeMenu = computed(() => {
+  const path = route.path
+  if (path.startsWith('/contracts')) return '/contracts'
+  if (path.startsWith('/reviews')) return '/reviews'
+  return path
+})
 const pageTitle = computed(() => {
   const titles = {
     '/dashboard': '仪表盘',
@@ -169,8 +193,23 @@ const pageTitle = computed(() => {
     '/users': '用户管理',
     '/departments': '部门管理',
     '/audit-logs': '操作日志',
+    '/permission-config': '权限配置',
+    '/ai-chat': 'AI智能助手',
   }
-  return titles[route.path] || 'AI智能合同审核系统'
+  if (titles[route.path]) return titles[route.path]
+  if (route.path.startsWith('/contracts')) return '合同管理'
+  if (route.path.startsWith('/reviews')) return '合同审核'
+  return 'AI智能合同审核系统'
+})
+
+const moduleTitle = computed(() => {
+  if (route.path.startsWith('/contracts')) return '文件库'
+  if (route.path.startsWith('/reviews')) return '审查中心'
+  if (route.path.startsWith('/rules') || route.path === '/rule-matches') return '审查规则库'
+  if (route.path.startsWith('/knowledge')) return '主体库'
+  if (route.path.startsWith('/users') || route.path.startsWith('/departments') || route.path.startsWith('/audit-logs') || route.path.startsWith('/permission-config')) return '组织权限'
+  if (route.path.startsWith('/ai')) return '智能咨询'
+  return '工作台'
 })
 
 const handleCommand = async (command) => {
@@ -214,66 +253,181 @@ onMounted(async () => {
   if (userStore.token && !userStore.user) {
     await userStore.fetchUserInfo()
   }
-  // 调试：检查最近登录用户
-  console.log('最近登录用户:', userStore.recentUsers)
 })
 </script>
 
 <style scoped>
 .layout-container {
   height: 100vh;
+  color: #1f2430;
+  background: #f7f9fc;
 }
 
 .sidebar {
-  background-color: #304156;
-  color: #fff;
+  display: flex;
+  flex-direction: column;
+  background: linear-gradient(180deg, #f7f8fe 0%, #f2f5fb 100%);
+  color: #252a36;
+  border-right: 1px solid #e2e7f0;
 }
 
-.logo {
-  height: 60px;
+.brand {
+  height: 92px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  border-bottom: 1px solid #434a50;
+  justify-content: space-between;
+  padding: 0 24px 0 16px;
 }
 
-.logo h2 {
+.brand-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.brand-mark {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
   color: #fff;
-  font-size: 18px;
-  margin: 0;
+  font-size: 22px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, #5d5df8 0%, #7775ff 100%);
+  box-shadow: 0 12px 28px rgba(80, 91, 238, 0.24);
+}
+
+.brand-copy {
+  min-width: 0;
+}
+
+.brand-name {
+  color: #605cff;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.brand-desc {
+  margin-top: 4px;
+  color: #8a93a5;
+  font-size: 12px;
+}
+
+.sidebar-toggle {
+  width: 30px;
+  height: 30px;
+  color: #8d96a8;
+  border: 1px solid #d9dfeb;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.sidebar-scroll {
+  flex: 1;
+  min-height: 0;
 }
 
 .sidebar-menu {
   border: none;
-  height: calc(100vh - 60px);
-  overflow-y: auto;
+  padding: 0 16px;
+  background: transparent;
+}
+
+.sidebar-menu :deep(.el-menu-item) {
+  height: 56px;
+  margin: 3px 0;
+  padding: 0 16px !important;
+  color: #232733;
+  font-size: 16px;
+  font-weight: 500;
+  border-radius: 8px;
+}
+
+.sidebar-menu :deep(.el-menu-item .el-icon) {
+  margin-right: 14px;
+  color: #202734;
+  font-size: 22px;
+}
+
+.sidebar-menu :deep(.el-menu-item:hover) {
+  color: #1677ff;
+  background: rgba(233, 240, 251, 0.9);
+}
+
+.sidebar-menu :deep(.el-menu-item.is-active) {
+  color: #252a36;
+  background: #e7e8f1;
+}
+
+.sidebar-menu :deep(.el-menu-item.is-active .el-icon) {
+  color: #1677ff;
+}
+
+.content-shell {
+  min-width: 0;
+  background: #fff;
 }
 
 .header {
-  background-color: #fff;
-  border-bottom: 1px solid #e4e7ed;
+  height: 92px;
+  background: linear-gradient(180deg, #f9fbff 0%, #fff 100%);
+  border-bottom: 1px solid #e5e9f2;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 16px 0 64px;
 }
 
-.header-left h3 {
-  margin: 0;
-  font-size: 20px;
-  font-weight: 500;
+.page-tabs {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  color: #667086;
+  font-size: 21px;
+  line-height: 1;
+}
+
+.page-tabs strong {
+  color: #20242e;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.tab-divider {
+  width: 1px;
+  height: 44px;
+  background: #dde3ef;
 }
 
 .header-right {
   display: flex;
   align-items: center;
+  gap: 12px;
+}
+
+.language-button {
+  width: 54px;
+  height: 54px;
+  padding: 0;
+  color: #1f2530;
+  font-size: 20px;
+  font-weight: 700;
+  border-color: #e3e8f2;
+  border-radius: 10px;
+  background: #fbfdff;
 }
 
 .user-info {
   display: flex;
   align-items: center;
   cursor: pointer;
-  color: #606266;
+  height: 42px;
+  padding: 0 12px;
+  color: #4e596c;
+  border-radius: 8px;
 }
 
 .user-info .el-icon {
@@ -281,8 +435,9 @@ onMounted(async () => {
 }
 
 .main-content {
-  background-color: #f0f2f5;
-  padding: 20px;
+  --main-inline-padding: 44px;
+  background: #fff;
+  padding: 0;
   overflow-y: auto;
 }
 
@@ -308,4 +463,3 @@ onMounted(async () => {
   color: #f56c6c !important;
 }
 </style>
-

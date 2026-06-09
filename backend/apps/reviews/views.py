@@ -857,7 +857,10 @@ class AIModelConfigViewSet(viewsets.ModelViewSet):
         else:
             return Response({
                 'provider': provider,
-                'models': []
+                'models': [
+                    {'value': 'deepseek-v4-pro', 'label': 'deepseek-v4-pro'},
+                    {'value': 'deepseek-v4-flash', 'label': 'deepseek-v4-flash'},
+                ]
             })
     
     @action(detail=False, methods=['post'])

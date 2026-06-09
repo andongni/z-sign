@@ -185,7 +185,9 @@ class AIService:
                 {"role": "system", "content": "你是一位专业的助手。"},
                 {"role": "user", "content": "你好，请回复'连接成功'"}
             ]
-            
+            logger.info(f"请求地址：{self.api_url}")
+            logger.info(f"请求app_key：{self.api_key}")
+            logger.info(f"请求模型：{self.model}")
             headers = {
                 'Authorization': f'Bearer {self.api_key}',
                 'Content-Type': 'application/json'
@@ -197,15 +199,15 @@ class AIService:
                 'temperature': 0.3,
                 'max_tokens': 50  # 测试时使用较少的token
             }
-            
+
             # 发送请求
             response = requests.post(
                 self.api_url,
                 headers=headers,
                 json=data,
-                timeout=10  # 测试时使用较短的超时时间
+                timeout=30  # 测试时使用较短的超时时间
             )
-            
+            logger.debug(response.json())
             if response.status_code == 200:
                 result = response.json()
                 # 解析响应

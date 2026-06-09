@@ -114,21 +114,26 @@
         </el-card>
         
         <!-- 审核意见闭环功能 -->
-        <el-divider>
+        <el-divider class="review-cycle-divider">
           <span>审核意见闭环</span>
         </el-divider>
-        <el-space direction="vertical" style="width: 100%" size="large">
-          <el-card shadow="never">
+        <section class="review-cycle-section">
+          <el-card shadow="never" class="review-cycle-card">
             <template #header>
-              <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>意见汇总与反馈</span>
-                <el-button type="primary" @click="handleSummarizeOpinions" :loading="summarizing">
+              <div class="review-cycle-header">
+                <span class="review-cycle-title">意见汇总与反馈</span>
+                <el-button
+                  class="summarize-button"
+                  type="primary"
+                  @click="handleSummarizeOpinions"
+                  :loading="summarizing"
+                >
                   汇总审核意见
                 </el-button>
               </div>
             </template>
             <div v-if="summaryTable">
-              <el-descriptions :column="2" border>
+              <el-descriptions class="summary-statistics" :column="2" border>
                 <el-descriptions-item label="总意见数">{{ summaryTable.statistics?.total_opinions || 0 }}</el-descriptions-item>
                 <el-descriptions-item label="高风险">
                   <el-tag type="danger">{{ summaryTable.statistics?.high_risk_count || 0 }}</el-tag>
@@ -141,9 +146,9 @@
                 </el-descriptions-item>
               </el-descriptions>
               
-              <el-tabs v-model="opinionTab" style="margin-top: 20px">
+              <el-tabs v-model="opinionTab" class="summary-tabs">
                 <el-tab-pane label="一级审核意见" name="level1">
-                  <el-table :data="summaryTable.level1_opinions" style="width: 100%">
+                  <el-table :data="summaryTable.level1_opinions || []" style="width: 100%">
                     <el-table-column prop="type" label="类型" width="100" />
                     <el-table-column prop="risk_level" label="风险等级" width="100" />
                     <el-table-column prop="content" label="意见内容" />
@@ -151,7 +156,7 @@
                   </el-table>
                 </el-tab-pane>
                 <el-tab-pane label="二级审核意见" name="level2">
-                  <el-table :data="summaryTable.level2_opinions" style="width: 100%">
+                  <el-table :data="summaryTable.level2_opinions || []" style="width: 100%">
                     <el-table-column prop="type" label="类型" width="100" />
                     <el-table-column prop="risk_level" label="风险等级" width="100" />
                     <el-table-column prop="content" label="意见内容" />
@@ -159,7 +164,7 @@
                   </el-table>
                 </el-tab-pane>
                 <el-tab-pane label="三级审核意见" name="level3">
-                  <el-table :data="summaryTable.level3_opinions" style="width: 100%">
+                  <el-table :data="summaryTable.level3_opinions || []" style="width: 100%">
                     <el-table-column prop="type" label="类型" width="100" />
                     <el-table-column prop="risk_level" label="风险等级" width="100" />
                     <el-table-column prop="content" label="意见内容" />
@@ -167,7 +172,7 @@
                   </el-table>
                 </el-tab-pane>
                 <el-tab-pane label="全部意见" name="all">
-                  <el-table :data="summaryTable.all_opinions" style="width: 100%">
+                  <el-table :data="summaryTable.all_opinions || []" style="width: 100%">
                     <el-table-column prop="reviewer_level" label="审核层级" width="100" />
                     <el-table-column prop="type" label="类型" width="100" />
                     <el-table-column prop="risk_level" label="风险等级" width="100" />
@@ -177,7 +182,7 @@
                 </el-tab-pane>
               </el-tabs>
               
-              <div style="margin-top: 20px">
+              <div class="summary-actions">
                 <el-button type="success" @click="handleFeedbackToDrafter" :loading="feedbacking">
                   反馈给起草人
                 </el-button>
@@ -186,9 +191,9 @@
                 </el-button>
               </div>
             </div>
-            <el-empty v-else description="请先汇总审核意见" />
+            <el-empty v-else class="review-cycle-empty" description="请先汇总审核意见" />
           </el-card>
-        </el-space>
+        </section>
       </div>
       <div v-else-if="task">
         <el-alert
@@ -680,5 +685,81 @@ onUnmounted(() => {
 .review-detail {
   padding: 20px;
 }
-</style>
 
+.review-cycle-divider {
+  margin: 28px 0 20px;
+}
+
+.review-cycle-section {
+  width: 100%;
+  min-width: 0;
+}
+
+.review-cycle-card {
+  width: 100%;
+  min-width: 0;
+}
+
+.review-cycle-card :deep(.el-card__header) {
+  padding: 18px 24px;
+}
+
+.review-cycle-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  min-width: 0;
+}
+
+.review-cycle-title {
+  flex: 1 1 220px;
+  min-width: 0;
+  overflow: hidden;
+  color: #20242e;
+  font-size: 20px;
+  font-weight: 700;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.summarize-button {
+  flex: 0 0 auto;
+}
+
+.summary-statistics {
+  width: 100%;
+}
+
+.summary-tabs {
+  margin-top: 20px;
+}
+
+.summary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.review-cycle-empty {
+  width: 100%;
+  min-height: 320px;
+}
+
+@media (max-width: 760px) {
+  .review-cycle-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .review-cycle-title {
+    flex-basis: auto;
+  }
+
+  .summarize-button {
+    width: 100%;
+  }
+}
+</style>

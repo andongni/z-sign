@@ -92,6 +92,7 @@ class AuditLogMiddleware(MiddlewareMixin):
                     error_message = str(response_data.get('detail', response_data.get('error', '')))[:500]
                 else:
                     error_message = f'HTTP {response.status_code}'
+                self._log_failed_response(request, response, response_data, error_message)
             
             # 创建操作日志
             AuditLog.objects.create(
@@ -111,6 +112,17 @@ class AuditLogMiddleware(MiddlewareMixin):
             logger.error(f'Failed to create audit log: {str(e)}', exc_info=True)
         
         return response
+
+    def process_exception(self, request, exception):
+        """记录未处理异常，交给 Django 继续生成响应。"""
+        if self._should_log(request):
+            logger.exception(
+                'Unhandled API exception: %s %s - %s',
+                request.method,
+                request.get_full_path(),
+                exception,
+            )
+        return None
     
     def _should_log(self, request):
         """判断是否应该记录日志"""
@@ -245,3 +257,22 @@ class AuditLogMiddleware(MiddlewareMixin):
             ip = request.META.get('REMOTE_ADDR')
         return ip
 
+    def _log_failed_response(self, request, response, response_data, error_message):
+        """把 DRF 返回的 4xx/5xx API 错误输出到开发控制台。"""
+        logger.warning(
+            'API request failed: %s %s -> HTTP %s, error=%s, response=%s',
+            request.method,
+            request.get_full_path(),
+            response.status_code,
+            error_message or '',
+            self._truncate_log_value(response_data),
+        )
+
+    def _truncate_log_value(self, value, limit=1000):
+        """限制响应体日志长度，避免大响应刷屏。"""
+        if value is None:
+            return ''
+        text = str(value)
+        if len(text) > limit:
+            return f'{text[:limit]}...'
+        return text
