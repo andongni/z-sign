@@ -1,8 +1,8 @@
 <template>
-  <el-container class="layout-container">
-    <el-aside width="300px" class="sidebar">
+  <el-container class="layout-container" :class="{ 'is-sidebar-collapsed': isSidebarCollapsed }">
+    <el-aside :width="isSidebarCollapsed ? '88px' : '300px'" class="sidebar">
       <div class="brand">
-        <div class="brand-left">
+        <div v-show="!isSidebarCollapsed" class="brand-left">
           <div class="brand-mark">
             <el-icon><Connection /></el-icon>
           </div>
@@ -11,14 +11,26 @@
             <div class="brand-desc">合同审查工作台</div>
           </div>
         </div>
-        <el-button class="sidebar-toggle" text>
-          <el-icon><Fold /></el-icon>
+        <el-button
+          class="sidebar-toggle"
+          text
+          :title="isSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+          :aria-label="isSidebarCollapsed ? '展开侧边栏' : '收起侧边栏'"
+          :aria-expanded="String(!isSidebarCollapsed)"
+          @click="toggleSidebar"
+        >
+          <el-icon>
+            <Expand v-if="isSidebarCollapsed" />
+            <Fold v-else />
+          </el-icon>
         </el-button>
       </div>
 
       <el-scrollbar class="sidebar-scroll">
         <el-menu
           :default-active="activeMenu"
+          :collapse="isSidebarCollapsed"
+          :collapse-transition="false"
           router
           class="sidebar-menu"
         >
@@ -157,15 +169,16 @@
 </template>
 
 <script setup>
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, OfficeBuilding, DocumentCopy, Edit, Cpu, RefreshRight, Close, SwitchButton, Lock, ChatDotRound, List, Fold } from '@element-plus/icons-vue'
+import { ArrowDown, OfficeBuilding, DocumentCopy, Edit, Cpu, RefreshRight, Close, SwitchButton, Lock, ChatDotRound, List, Fold, Expand } from '@element-plus/icons-vue'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
+const isSidebarCollapsed = ref(localStorage.getItem('sidebar_collapsed') === '1')
 
 // 计算最近登录用户列表（排除当前用户）
 const recentUsersList = computed(() => {
@@ -211,6 +224,11 @@ const moduleTitle = computed(() => {
   if (route.path.startsWith('/ai')) return '智能咨询'
   return '工作台'
 })
+
+const toggleSidebar = () => {
+  isSidebarCollapsed.value = !isSidebarCollapsed.value
+  localStorage.setItem('sidebar_collapsed', isSidebarCollapsed.value ? '1' : '0')
+}
 
 const handleCommand = async (command) => {
   if (command === 'logout') {
@@ -269,6 +287,8 @@ onMounted(async () => {
   background: linear-gradient(180deg, #f7f8fe 0%, #f2f5fb 100%);
   color: #252a36;
   border-right: 1px solid #e2e7f0;
+  overflow: hidden;
+  transition: width 0.18s ease;
 }
 
 .brand {
@@ -277,6 +297,11 @@ onMounted(async () => {
   align-items: center;
   justify-content: space-between;
   padding: 0 24px 0 16px;
+}
+
+.is-sidebar-collapsed .brand {
+  justify-content: center;
+  padding: 0;
 }
 
 .brand-left {
@@ -317,12 +342,20 @@ onMounted(async () => {
 }
 
 .sidebar-toggle {
-  width: 30px;
-  height: 30px;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  padding: 0;
   color: #8d96a8;
   border: 1px solid #d9dfeb;
-  border-radius: 6px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.72);
+}
+
+.sidebar-toggle:hover {
+  color: #1677ff;
+  border-color: #c8d6ec;
+  background: #fff;
 }
 
 .sidebar-scroll {
@@ -334,6 +367,7 @@ onMounted(async () => {
   border: none;
   padding: 0 16px;
   background: transparent;
+  transition: width 0.18s ease;
 }
 
 .sidebar-menu :deep(.el-menu-item) {
@@ -346,10 +380,31 @@ onMounted(async () => {
   border-radius: 8px;
 }
 
+.is-sidebar-collapsed .sidebar-menu {
+  width: 88px;
+  padding: 0 12px;
+}
+
+.is-sidebar-collapsed .sidebar-menu :deep(.el-menu-item) {
+  justify-content: center;
+  width: 64px;
+  padding: 0 !important;
+}
+
 .sidebar-menu :deep(.el-menu-item .el-icon) {
   margin-right: 14px;
   color: #202734;
   font-size: 22px;
+}
+
+.is-sidebar-collapsed .sidebar-menu :deep(.el-menu-item .el-icon) {
+  margin-right: 0;
+}
+
+.is-sidebar-collapsed .sidebar-menu :deep(.el-menu-tooltip__trigger) {
+  justify-content: center;
+  width: 64px;
+  padding: 0 !important;
 }
 
 .sidebar-menu :deep(.el-menu-item:hover) {

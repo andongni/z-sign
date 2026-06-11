@@ -336,6 +336,10 @@ select {
     width: 250px !important;
   }
 
+  .layout-container.is-sidebar-collapsed .sidebar {
+    width: 88px !important;
+  }
+
   .layout-container .header {
     padding-left: 32px;
   }

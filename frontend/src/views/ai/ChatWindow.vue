@@ -41,10 +41,11 @@
           </div>
           <div class="message-content">
             <div class="message-text" v-html="formatMessage(message.content)"></div>
+            <span v-if="message.streaming" class="stream-cursor"></span>
             <div class="message-time">{{ formatTime(message.timestamp) }}</div>
           </div>
         </div>
-        <div v-if="loading" class="message-item ai-message">
+        <div v-if="loading && !hasStreamingMessage" class="message-item ai-message">
           <div class="message-avatar">
             <el-icon class="is-loading" style="font-size: 20px; color: #67C23A"><Loading /></el-icon>
           </div>
@@ -90,7 +91,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ChatDotRound, User, Cpu, Loading, Delete, Promotion } from '@element-plus/icons-vue'
 import api from '@/utils/api'
@@ -100,6 +101,7 @@ const inputMessage = ref('')
 const loading = ref(false)
 const messagesContainer = ref(null)
 const currentModel = ref('')
+const hasStreamingMessage = computed(() => messages.value.some(message => message.streaming))
 
 // 获取当前使用的AI模型
 const fetchCurrentModel = async () => {
@@ -137,24 +139,26 @@ const sendMessage = async () => {
   scrollToBottom()
 
   try {
-    const response = await api.post('/reviews/ai-model-configs/chat/', {
-      message: question,
-      history: messages.value.slice(0, -1).map(msg => ({
-        role: msg.role,
-        content: msg.content
-      }))
-    })
-
     const aiMessage = {
       role: 'assistant',
-      content: response.data.response || response.data.message || '抱歉，我无法回答这个问题。',
-      timestamp: new Date()
+      content: '',
+      timestamp: new Date(),
+      streaming: true
     }
 
     messages.value.push(aiMessage)
+    const aiMessageIndex = messages.value.length - 1
+    await nextTick()
+    scrollToBottom()
+
+    await streamChatResponse(question, messages.value.slice(0, -2), aiMessageIndex)
+
+    if (!messages.value[aiMessageIndex].content.trim()) {
+      messages.value[aiMessageIndex].content = '抱歉，我无法回答这个问题。'
+    }
   } catch (error) {
     console.error('发送消息失败:', error)
-    const errorMessage = error.response?.data?.error || error.response?.data?.detail || '发送消息失败，请稍后重试'
+    const errorMessage = error.message || error.response?.data?.error || error.response?.data?.detail || '发送消息失败，请稍后重试'
     ElMessage.error(errorMessage)
     
     const errorMsg = {
@@ -164,9 +168,86 @@ const sendMessage = async () => {
     }
     messages.value.push(errorMsg)
   } finally {
+    const streamingMessage = messages.value.find(message => message.streaming)
+    if (streamingMessage) {
+      streamingMessage.streaming = false
+    }
     loading.value = false
     await nextTick()
     scrollToBottom()
+  }
+}
+
+const streamChatResponse = async (question, historyMessages, aiMessageIndex) => {
+  const token = localStorage.getItem('token')
+  const response = await fetch('/api/reviews/ai-model-configs/stream-chat', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    },
+    body: JSON.stringify({
+      message: question,
+      history: historyMessages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }))
+    })
+  })
+
+  if (!response.ok) {
+    const errorText = await response.text()
+    throw new Error(parseStreamError(errorText, response.status))
+  }
+
+  if (!response.body) {
+    throw new Error('当前浏览器不支持流式响应')
+  }
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder('utf-8')
+
+  while (true) {
+    const { value, done } = await reader.read()
+    if (done) break
+    await appendStreamContent(aiMessageIndex, decoder.decode(value, { stream: true }))
+  }
+
+  const rest = decoder.decode()
+  if (rest) {
+    await appendStreamContent(aiMessageIndex, rest)
+  }
+}
+
+const appendStreamContent = async (messageIndex, chunk) => {
+  if (!chunk || !messages.value[messageIndex]) return
+  const batchSize = Math.max(1, Math.ceil(chunk.length / 80))
+  for (let index = 0; index < chunk.length; index += batchSize) {
+    if (!messages.value[messageIndex]) return
+    messages.value[messageIndex].content += chunk.slice(index, index + batchSize)
+    await nextTick()
+    scrollToBottom()
+    await waitNextFrame()
+  }
+}
+
+const waitNextFrame = () => new Promise(resolve => {
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(resolve)
+  } else {
+    setTimeout(resolve, 16)
+  }
+})
+
+const parseStreamError = (text, status) => {
+  try {
+    const data = JSON.parse(text)
+    if (Array.isArray(data.detail)) {
+      return data.detail.map(item => item.msg).join('；') || `请求失败（${status}）`
+    }
+    return data.detail || data.error || data.message || `请求失败（${status}）`
+  } catch (error) {
+    return text || `请求失败（${status}）`
   }
 }
 
@@ -185,23 +266,173 @@ const clearChat = async () => {
   }
 }
 
-// 格式化消息内容（支持Markdown和换行）
+// 格式化消息内容：先转义HTML，再渲染常用Markdown语法
 const formatMessage = (content) => {
   if (!content) return ''
-  
-  // 转义HTML
-  let formatted = content
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-  
-  // 处理换行
-  formatted = formatted.replace(/\n/g, '<br>')
-  
-  // 处理代码块（简单处理）
-  formatted = formatted.replace(/`([^`]+)`/g, '<code>$1</code>')
-  
-  return formatted
+  const lines = String(content).replace(/\r\n/g, '\n').split('\n')
+  const html = []
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]
+    const trimmed = line.trim()
+
+    if (!trimmed) {
+      continue
+    }
+
+    const fenceMatch = trimmed.match(/^```(\w+)?\s*$/)
+    if (fenceMatch) {
+      const language = fenceMatch[1] || ''
+      const codeLines = []
+      index++
+      while (index < lines.length && !lines[index].trim().startsWith('```')) {
+        codeLines.push(lines[index])
+        index++
+      }
+      html.push(
+        `<pre class="markdown-code-block"><code data-language="${escapeAttribute(language)}">${escapeHtml(codeLines.join('\n'))}</code></pre>`
+      )
+      continue
+    }
+
+    if (/^---+$|^\*\*\*+$|^___+$/.test(trimmed)) {
+      html.push('<hr>')
+      continue
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/)
+    if (headingMatch) {
+      const level = headingMatch[1].length
+      html.push(`<h${level}>${renderInlineMarkdown(headingMatch[2])}</h${level}>`)
+      continue
+    }
+
+    if (isTableStart(lines, index)) {
+      const headers = splitTableRow(lines[index])
+      index += 2
+      const rows = []
+      while (index < lines.length && isTableRow(lines[index])) {
+        rows.push(splitTableRow(lines[index]))
+        index++
+      }
+      index--
+      html.push(renderMarkdownTable(headers, rows))
+      continue
+    }
+
+    if (/^>\s?/.test(trimmed)) {
+      const quoteLines = []
+      while (index < lines.length && /^>\s?/.test(lines[index].trim())) {
+        quoteLines.push(lines[index].trim().replace(/^>\s?/, ''))
+        index++
+      }
+      index--
+      html.push(`<blockquote>${quoteLines.map(renderInlineMarkdown).join('<br>')}</blockquote>`)
+      continue
+    }
+
+    if (/^\s*[-*+]\s+/.test(line)) {
+      const items = []
+      while (index < lines.length && /^\s*[-*+]\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*[-*+]\s+/, ''))
+        index++
+      }
+      index--
+      html.push(`<ul>${items.map(item => `<li>${renderInlineMarkdown(item)}</li>`).join('')}</ul>`)
+      continue
+    }
+
+    if (/^\s*\d+\.\s+/.test(line)) {
+      const items = []
+      while (index < lines.length && /^\s*\d+\.\s+/.test(lines[index])) {
+        items.push(lines[index].replace(/^\s*\d+\.\s+/, ''))
+        index++
+      }
+      index--
+      html.push(`<ol>${items.map(item => `<li>${renderInlineMarkdown(item)}</li>`).join('')}</ol>`)
+      continue
+    }
+
+    const paragraphLines = [line]
+    while (
+      index + 1 < lines.length &&
+      lines[index + 1].trim() &&
+      !isMarkdownBlockStart(lines[index + 1], lines[index + 2])
+    ) {
+      paragraphLines.push(lines[index + 1])
+      index++
+    }
+    html.push(`<p>${paragraphLines.map(renderInlineMarkdown).join('<br>')}</p>`)
+  }
+
+  return html.join('')
+}
+
+const escapeHtml = (value) => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;')
+
+const escapeAttribute = (value) => escapeHtml(value).replace(/`/g, '&#96;')
+
+const renderInlineMarkdown = (text) => {
+  const codeSegments = []
+  let rendered = escapeHtml(text).replace(/`([^`]+)`/g, (_, code) => {
+    codeSegments.push(`<code>${code}</code>`)
+    return `@@CODE_${codeSegments.length - 1}@@`
+  })
+
+  rendered = rendered
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+    .replace(/__([^_]+)__/g, '<strong>$1</strong>')
+    .replace(/~~([^~]+)~~/g, '<del>$1</del>')
+    .replace(/\*([^*\n]+)\*/g, '<em>$1</em>')
+    .replace(/_([^_\n]+)_/g, '<em>$1</em>')
+
+  return rendered.replace(/@@CODE_(\d+)@@/g, (_, index) => codeSegments[Number(index)] || '')
+}
+
+const isMarkdownBlockStart = (line, nextLine = '') => {
+  const trimmed = line.trim()
+  return (
+    !trimmed ||
+    /^```/.test(trimmed) ||
+    /^(#{1,6})\s+/.test(trimmed) ||
+    /^>\s?/.test(trimmed) ||
+    /^\s*[-*+]\s+/.test(line) ||
+    /^\s*\d+\.\s+/.test(line) ||
+    /^---+$|^\*\*\*+$|^___+$/.test(trimmed) ||
+    isTableStart([line, nextLine], 0)
+  )
+}
+
+const isTableStart = (lines, index) => {
+  return isTableRow(lines[index] || '') && isTableSeparator(lines[index + 1] || '')
+}
+
+const isTableRow = (line) => line.includes('|') && splitTableRow(line).length > 1
+
+const isTableSeparator = (line) => {
+  const cells = splitTableRow(line)
+  return cells.length > 1 && cells.every(cell => /^:?-{3,}:?$/.test(cell))
+}
+
+const splitTableRow = (line) => line
+  .trim()
+  .replace(/^\|/, '')
+  .replace(/\|$/, '')
+  .split('|')
+  .map(cell => cell.trim())
+
+const renderMarkdownTable = (headers, rows) => {
+  const head = headers.map(header => `<th>${renderInlineMarkdown(header)}</th>`).join('')
+  const body = rows
+    .map(row => `<tr>${headers.map((_, index) => `<td>${renderInlineMarkdown(row[index] || '')}</td>`).join('')}</tr>`)
+    .join('')
+  return `<div class="markdown-table-wrap"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`
 }
 
 // 格式化时间
@@ -288,8 +519,8 @@ onMounted(() => {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 20px;
-  background-color: #f5f7fa;
+  padding: 24px;
+  background: #fdfefe;
   min-height: 0;
   max-height: 100%;
   position: relative;
@@ -326,17 +557,21 @@ onMounted(() => {
 }
 
 .user-message .message-content {
-  background-color: #409EFF;
+  background: linear-gradient(135deg, #4f9bff 0%, #76b4ff 100%);
   color: white;
   margin-right: 12px;
   margin-left: 60px;
+  border: 1px solid rgba(79, 155, 255, 0.16);
+  box-shadow: 0 8px 20px rgba(79, 155, 255, 0.12);
 }
 
 .ai-message .message-content {
-  background-color: white;
-  color: #303133;
+  background: #ffffff;
+  color: #2b3445;
   margin-left: 12px;
   margin-right: 60px;
+  border: 1px solid #e3eaf5;
+  box-shadow: 0 10px 28px rgba(31, 43, 77, 0.06);
 }
 
 .message-avatar {
@@ -347,23 +582,25 @@ onMounted(() => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  background-color: #f0f2f5;
+  border: 1px solid #e3eaf5;
+  background-color: #fff;
 }
 
 .user-message .message-avatar {
-  background-color: #e6f4ff;
+  border-color: #cfe3ff;
+  background-color: #edf6ff;
 }
 
 .ai-message .message-avatar {
-  background-color: #f0f9ff;
+  border-color: #d8eee3;
+  background-color: #f0fbf5;
 }
 
 .message-content {
   max-width: 70%;
-  padding: 12px 16px;
-  border-radius: 8px;
+  padding: 14px 18px;
+  border-radius: 10px;
   word-wrap: break-word;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 .message-text {
@@ -371,16 +608,194 @@ onMounted(() => {
   font-size: 14px;
 }
 
+.message-text :deep(p) {
+  margin: 0 0 10px;
+}
+
+.message-text :deep(p:last-child),
+.message-text :deep(ul:last-child),
+.message-text :deep(ol:last-child),
+.message-text :deep(blockquote:last-child),
+.message-text :deep(pre:last-child),
+.message-text :deep(.markdown-table-wrap:last-child) {
+  margin-bottom: 0;
+}
+
+.message-text :deep(h1),
+.message-text :deep(h2),
+.message-text :deep(h3),
+.message-text :deep(h4),
+.message-text :deep(h5),
+.message-text :deep(h6) {
+  margin: 14px 0 8px;
+  color: #1f2430;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.message-text :deep(h1:first-child),
+.message-text :deep(h2:first-child),
+.message-text :deep(h3:first-child),
+.message-text :deep(h4:first-child),
+.message-text :deep(h5:first-child),
+.message-text :deep(h6:first-child) {
+  margin-top: 0;
+}
+
+.message-text :deep(h1) {
+  font-size: 22px;
+}
+
+.message-text :deep(h2) {
+  font-size: 20px;
+}
+
+.message-text :deep(h3) {
+  font-size: 18px;
+}
+
+.message-text :deep(h4),
+.message-text :deep(h5),
+.message-text :deep(h6) {
+  font-size: 16px;
+}
+
+.message-text :deep(ul),
+.message-text :deep(ol) {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+
+.message-text :deep(li) {
+  margin: 4px 0;
+}
+
+.message-text :deep(blockquote) {
+  margin: 0 0 10px;
+  padding: 8px 12px;
+  color: #586174;
+  border-left: 4px solid #9fb6d8;
+  border-radius: 0 6px 6px 0;
+  background: #f5f8fd;
+}
+
+.message-text :deep(a) {
+  color: #1677ff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.message-text :deep(a:hover) {
+  text-decoration: underline;
+}
+
+.message-text :deep(strong) {
+  color: #1f2430;
+  font-weight: 700;
+}
+
+.message-text :deep(del) {
+  color: #8a93a5;
+}
+
+.stream-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 16px;
+  margin-left: 2px;
+  vertical-align: -2px;
+  background: #67c23a;
+  animation: cursorBlink 0.9s infinite;
+}
+
+@keyframes cursorBlink {
+  0%, 45% {
+    opacity: 1;
+  }
+  46%, 100% {
+    opacity: 0;
+  }
+}
+
 .message-text :deep(code) {
-  background-color: rgba(0, 0, 0, 0.1);
+  background-color: #edf4ff;
   padding: 2px 6px;
-  border-radius: 3px;
-  font-family: 'Courier New', monospace;
+  border-radius: 4px;
+  color: #315078;
+  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
   font-size: 13px;
+}
+
+.message-text :deep(.markdown-code-block) {
+  margin: 0 0 12px;
+  padding: 12px;
+  overflow-x: auto;
+  color: #edf3ff;
+  border-radius: 8px;
+  background: #1f2937;
+}
+
+.message-text :deep(.markdown-code-block code) {
+  display: block;
+  padding: 0;
+  color: inherit;
+  white-space: pre;
+  background: transparent;
+}
+
+.message-text :deep(.markdown-table-wrap) {
+  max-width: 100%;
+  margin: 0 0 12px;
+  overflow-x: auto;
+}
+
+.message-text :deep(table) {
+  width: 100%;
+  min-width: 360px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.message-text :deep(th),
+.message-text :deep(td) {
+  padding: 8px 10px;
+  text-align: left;
+  border: 1px solid #dce3ef;
+}
+
+.message-text :deep(th) {
+  color: #2b3445;
+  font-weight: 700;
+  background: #f5f8fd;
+}
+
+.message-text :deep(hr) {
+  height: 1px;
+  margin: 14px 0;
+  border: 0;
+  background: #dce3ef;
 }
 
 .user-message .message-text :deep(code) {
   background-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+}
+
+.user-message .message-text :deep(strong),
+.user-message .message-text :deep(h1),
+.user-message .message-text :deep(h2),
+.user-message .message-text :deep(h3),
+.user-message .message-text :deep(h4),
+.user-message .message-text :deep(h5),
+.user-message .message-text :deep(h6),
+.user-message .message-text :deep(a) {
+  color: #fff;
+}
+
+.user-message .message-text :deep(blockquote) {
+  color: rgba(255, 255, 255, 0.88);
+  border-left-color: rgba(255, 255, 255, 0.5);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .message-time {
@@ -427,9 +842,10 @@ onMounted(() => {
 
 .input-container {
   padding: 16px;
-  background-color: white;
-  border-top: 1px solid #e4e7ed;
+  background: #ffffff;
+  border-top: 1px solid #e3eaf5;
   flex-shrink: 0;
+  box-shadow: 0 -8px 22px rgba(31, 43, 77, 0.04);
 }
 
 .input-actions {
@@ -449,17 +865,16 @@ onMounted(() => {
 }
 
 .messages-container::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: #eef3fa;
   border-radius: 3px;
 }
 
 .messages-container::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
+  background: #c8d3e3;
   border-radius: 3px;
 }
 
 .messages-container::-webkit-scrollbar-thumb:hover {
-  background: #a8a8a8;
+  background: #aab8cc;
 }
 </style>
-
