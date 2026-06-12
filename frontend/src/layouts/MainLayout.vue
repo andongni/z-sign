@@ -314,12 +314,14 @@ onMounted(async () => {
 .brand-mark {
   width: 44px;
   height: 44px;
+  aspect-ratio: 1 / 1;
   display: grid;
   place-items: center;
   flex: 0 0 auto;
   color: #fff;
   font-size: 22px;
-  border-radius: 11px;
+  overflow: hidden;
+  border-radius: 12px;
   background: linear-gradient(135deg, #5d5df8 0%, #7775ff 100%);
   box-shadow: 0 12px 28px rgba(80, 91, 238, 0.24);
 }

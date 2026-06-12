@@ -16,6 +16,7 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import quote
 
 import jwt
 import MySQLdb
@@ -1204,6 +1205,12 @@ CHAT_SYSTEM_PROMPT = (
     "请用专业、友好、易懂的中文回答用户的问题。"
 )
 
+DOCUMENT_OVERVIEW_SYSTEM_PROMPT = (
+    "你是文档总结概览助手。请根据用户提供的文档全文生成文档概览。"
+    "要求：只输出中文概览正文，不要标题、编号、Markdown或解释说明；"
+    "概览必须聚焦文档主题、核心内容、关键事项和结论，控制在100到400字。"
+)
+
 
 def get_default_ai_config() -> dict[str, Any] | None:
     return db_one(
@@ -1260,16 +1267,132 @@ def extract_stream_delta(payload: dict[str, Any]) -> str:
     return ""
 
 
+def resolve_ai_model(config: dict[str, Any]) -> str:
+    model = str(config.get("default_model") or "").strip()
+    available_models = config.get("available_models")
+    if not model and isinstance(available_models, list) and available_models:
+        model = str(available_models[0] or "").strip()
+    return model
+
+
+def parse_ai_error(response: requests.Response) -> str:
+    try:
+        error_data = response.json()
+        error_message = error_data.get("message") or error_data.get("error") or response.text
+        if isinstance(error_message, dict):
+            error_message = error_message.get("message") or json.dumps(error_message, ensure_ascii=False)
+        return str(error_message)
+    except ValueError:
+        return response.text[:500]
+
+
+def call_ai_chat_completion(
+    messages: list[dict[str, str]],
+    *,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+) -> tuple[str, str]:
+    config = get_default_ai_config()
+    if not config or not config.get("api_key"):
+        raise HTTPException(status_code=503, detail="AI服务未启用或未配置API密钥")
+
+    model = resolve_ai_model(config)
+    if not model:
+        raise HTTPException(status_code=503, detail="AI服务未配置默认模型")
+
+    api_base_url = str(config.get("api_base_url") or "").rstrip("/")
+    if not api_base_url:
+        raise HTTPException(status_code=503, detail="AI服务未配置API基础地址")
+
+    timeout = int(config.get("timeout") or 30)
+    request_data = {
+        "model": model,
+        "messages": messages,
+        "temperature": temperature if temperature is not None else float(config.get("temperature") or 0.7),
+        "max_tokens": max_tokens if max_tokens is not None else int(config.get("max_tokens") or 2000),
+        "stream": False,
+    }
+    headers = {
+        "Authorization": f"Bearer {config['api_key']}",
+        "Content-Type": "application/json",
+    }
+
+    try:
+        response = requests.post(
+            f"{api_base_url}/chat/completions",
+            headers=headers,
+            json=request_data,
+            timeout=(10, timeout),
+        )
+    except requests.exceptions.Timeout as exc:
+        raise HTTPException(status_code=504, detail="AI接口调用超时，请稍后重试") from exc
+    except requests.exceptions.ConnectionError as exc:
+        raise HTTPException(status_code=502, detail="无法连接到AI服务，请检查API地址和网络连接") from exc
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=502, detail=f"AI接口调用失败：{parse_ai_error(response)}")
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise HTTPException(status_code=502, detail="AI接口返回格式无法解析") from exc
+
+    content = extract_stream_delta(payload).strip()
+    if not content:
+        raise HTTPException(status_code=502, detail="AI接口未返回有效内容")
+    return content, model
+
+
+def normalize_document_overview(text: str) -> str:
+    overview = re.sub(r"\s+", " ", text or "").strip()
+    if len(overview) <= 400:
+        return overview
+    clipped = overview[:400]
+    for separator in ("。", "！", "？", "；"):
+        index = clipped.rfind(separator)
+        if index >= 100:
+            return clipped[: index + 1].strip()
+    return clipped.strip()
+
+
+@app.post("/api/portal/ai/document-overview/")
+@app.post("/api/portal/ai/document-overview-chat/")
+async def portal_document_overview_chat(request: Request):
+    payload = await request.json()
+    content = str(
+        payload.get("content")
+        or payload.get("document_text")
+        or payload.get("message")
+        or ""
+    ).strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="文档内容不能为空")
+
+    document_name = str(payload.get("document_name") or payload.get("filename") or "").strip()
+    user_content = "请为以下文档生成100到400字的概览。"
+    if document_name:
+        user_content += f"\n文档名称：{document_name}"
+    user_content += f"\n\n文档全文：\n{content}"
+
+    response_text, model = call_ai_chat_completion(
+        [
+            {"role": "system", "content": DOCUMENT_OVERVIEW_SYSTEM_PROMPT},
+            {"role": "user", "content": user_content},
+        ],
+        max_tokens=700,
+        temperature=0.2,
+    )
+    overview = normalize_document_overview(response_text)
+    return {"success": True, "overview": overview, "response": overview, "model": model}
+
+
 def stream_chat_chunks(message: str, history: Any):
     config = get_default_ai_config()
     if not config or not config.get("api_key"):
         yield "抱歉，AI服务未启用或未配置。请管理员在AI模型配置中设置API密钥和默认模型。"
         return
 
-    model = config.get("default_model")
-    available_models = config.get("available_models")
-    if not model and isinstance(available_models, list) and available_models:
-        model = available_models[0]
+    model = resolve_ai_model(config)
     if not model:
         yield "抱歉，AI服务未配置默认模型。请管理员在AI模型配置中设置默认模型。"
         return
@@ -1433,6 +1556,357 @@ def accept_recommendation(row_id: int, user: dict[str, Any] = Depends(current_us
 def reject_recommendation(row_id: int, user: dict[str, Any] = Depends(current_user)):
     update_row("recommendations_recommendation", row_id, {"is_accepted": 0})
     return get_resource(SPECS["recommendations"], row_id)
+
+
+PORTAL_DOCUMENT_ROOT = MEDIA_ROOT / "portal" / "documents"
+PORTAL_ALLOWED_EXTENSIONS = {".docx", ".pdf"}
+PORTAL_MAX_UPLOAD_SIZE = int(os.getenv("PORTAL_MAX_UPLOAD_SIZE", str(20 * 1024 * 1024)))
+PORTAL_DOCX_CHARS_PER_PAGE = int(os.getenv("PORTAL_DOCX_CHARS_PER_PAGE", "1800"))
+PORTAL_DOCUMENT_ID_RE = re.compile(r"^[a-f0-9]{32}$")
+
+
+def sanitize_filename(filename: str) -> str:
+    name = Path(filename or "").name.strip()
+    if not name:
+        return "未命名文档"
+    return re.sub(r"[\\/:*?\"<>|]+", "_", name)[:180]
+
+
+def count_preview_words(text: str) -> int:
+    return len(re.findall(r"[\u4e00-\u9fff]|[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*", text or ""))
+
+
+def validate_portal_document_id(document_id: str) -> None:
+    if not PORTAL_DOCUMENT_ID_RE.match(document_id):
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+
+def portal_document_dir(document_id: str) -> Path:
+    validate_portal_document_id(document_id)
+    return PORTAL_DOCUMENT_ROOT / document_id
+
+
+def portal_metadata_path(document_id: str) -> Path:
+    return portal_document_dir(document_id) / "metadata.json"
+
+
+def load_portal_metadata(document_id: str) -> dict[str, Any]:
+    metadata_path = portal_metadata_path(document_id)
+    if not metadata_path.exists():
+        raise HTTPException(status_code=404, detail="文档不存在")
+    try:
+        return json.loads(metadata_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail="文档元数据损坏") from exc
+
+
+def save_portal_metadata(metadata: dict[str, Any]) -> None:
+    metadata_path = portal_metadata_path(metadata["id"])
+    metadata_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def validate_uploaded_file_signature(file_path: Path, extension: str) -> None:
+    if extension == ".pdf":
+        with file_path.open("rb") as source:
+            if source.read(4) != b"%PDF":
+                raise HTTPException(status_code=400, detail="文件内容不是有效的 PDF")
+        return
+    if extension == ".docx":
+        if not zipfile.is_zipfile(file_path):
+            raise HTTPException(status_code=400, detail="文件内容不是有效的 DOCX")
+        with zipfile.ZipFile(file_path) as archive:
+            names = set(archive.namelist())
+            if "[Content_Types].xml" not in names or "word/document.xml" not in names:
+                raise HTTPException(status_code=400, detail="文件内容不是有效的 DOCX")
+
+
+def docx_table_to_block(table: Any) -> dict[str, str]:
+    rows: list[str] = []
+    html_rows: list[str] = []
+    for row in table.rows:
+        cells = [cell.text.strip() for cell in row.cells]
+        if any(cells):
+            rows.append(" | ".join(cells))
+        html_cells = "".join(f"<td>{html.escape(cell)}</td>" for cell in cells)
+        html_rows.append(f"<tr>{html_cells}</tr>")
+    text = "\n".join(rows)
+    return {
+        "text": text,
+        "html": f"<table class=\"docx-preview-table\"><tbody>{''.join(html_rows)}</tbody></table>",
+    }
+
+
+def extract_docx_preview(file_path: Path) -> dict[str, Any]:
+    if docx is None:
+        raise HTTPException(status_code=500, detail="服务端缺少 python-docx 依赖")
+    document = docx.Document(file_path)
+    blocks: list[dict[str, str]] = []
+    text_parts: list[str] = []
+
+    for paragraph in document.paragraphs:
+        text = paragraph.text.strip()
+        paragraph_xml = paragraph._element.xml
+        has_page_break = 'w:type="page"' in paragraph_xml or "lastRenderedPageBreak" in paragraph_xml
+        if not text:
+            if has_page_break:
+                blocks.append({"text": "", "html": "", "page_break": "1"})
+            continue
+        text_parts.append(text)
+        style_name = (getattr(paragraph.style, "name", "") or "").lower()
+        tag = "h2" if "heading" in style_name or "标题" in style_name else "p"
+        blocks.append({"text": text, "html": f"<{tag}>{html.escape(text)}</{tag}>"})
+        if has_page_break:
+            blocks.append({"text": "", "html": "", "page_break": "1"})
+
+    for table in document.tables:
+        block = docx_table_to_block(table)
+        if block["text"]:
+            text_parts.append(block["text"])
+            blocks.append(block)
+
+    pages: list[dict[str, Any]] = []
+    current_html: list[str] = []
+    current_text: list[str] = []
+    current_chars = 0
+    for block in blocks:
+        if block.get("page_break"):
+            if current_html:
+                pages.append(
+                    {
+                        "page_number": len(pages) + 1,
+                        "type": "docx_html",
+                        "html": "".join(current_html),
+                        "text": "\n".join(current_text),
+                    }
+                )
+                current_html = []
+                current_text = []
+                current_chars = 0
+            continue
+        block_len = len(block["text"])
+        if current_html and current_chars + block_len > PORTAL_DOCX_CHARS_PER_PAGE:
+            pages.append(
+                {
+                    "page_number": len(pages) + 1,
+                    "type": "docx_html",
+                    "html": "".join(current_html),
+                    "text": "\n".join(current_text),
+                }
+            )
+            current_html = []
+            current_text = []
+            current_chars = 0
+        current_html.append(block["html"])
+        current_text.append(block["text"])
+        current_chars += block_len
+
+    if current_html:
+        pages.append(
+            {
+                "page_number": len(pages) + 1,
+                "type": "docx_html",
+                "html": "".join(current_html),
+                "text": "\n".join(current_text),
+            }
+        )
+    if not pages:
+        pages.append({"page_number": 1, "type": "docx_html", "html": "<p>该文档没有可预览文本。</p>", "text": ""})
+
+    full_text = "\n".join(text_parts)
+    title = ""
+    try:
+        title = (document.core_properties.title or "").strip()
+    except Exception:
+        title = ""
+    if not title:
+        title = next((part for part in text_parts if part), "")
+
+    return {
+        "title": title[:120],
+        "page_count": len(pages),
+        "word_count": count_preview_words(full_text),
+        "pages": pages,
+    }
+
+
+def extract_pdf_preview(document_id: str, file_path: Path) -> dict[str, Any]:
+    if fitz is None:
+        raise HTTPException(status_code=500, detail="服务端缺少 PyMuPDF 依赖")
+    text_parts: list[str] = []
+    pages: list[dict[str, Any]] = []
+    with fitz.open(file_path) as pdf:
+        metadata = pdf.metadata or {}
+        for page_index in range(len(pdf)):
+            page = pdf[page_index]
+            text = page.get_text("text").strip()
+            text_parts.append(text)
+            pages.append(
+                {
+                    "page_number": page_index + 1,
+                    "type": "pdf_image",
+                    "image_url": f"/api/portal/documents/{document_id}/pages/{page_index + 1}.png",
+                    "text": text,
+                }
+            )
+        title = (metadata.get("title") or "").strip()
+        if not title:
+            first_lines = [line.strip() for line in (text_parts[0] if text_parts else "").splitlines() if line.strip()]
+            title = first_lines[0] if first_lines else ""
+
+    if not pages:
+        pages.append({"page_number": 1, "type": "pdf_image", "image_url": f"/api/portal/documents/{document_id}/pages/1.png", "text": ""})
+
+    full_text = "\n".join(text_parts)
+    return {
+        "title": title[:120],
+        "page_count": len(pages),
+        "word_count": count_preview_words(full_text),
+        "pages": pages,
+    }
+
+
+def build_portal_preview(document_id: str, file_path: Path, extension: str) -> dict[str, Any]:
+    if extension == ".pdf":
+        return extract_pdf_preview(document_id, file_path)
+    if extension == ".docx":
+        return extract_docx_preview(file_path)
+    raise HTTPException(status_code=400, detail="仅支持 DOCX、PDF 文件")
+
+
+def portal_url(request: Request, path: str) -> str:
+    base_url = str(request.base_url).rstrip("/")
+    return f"{base_url}{path}"
+
+
+def serialize_portal_document(request: Request, metadata: dict[str, Any]) -> dict[str, Any]:
+    document_id = metadata["id"]
+    file_url = f"/api/portal/documents/{document_id}/file/"
+    preview_url = f"/api/portal/documents/{document_id}/preview/"
+    pages: list[dict[str, Any]] = []
+    for page in metadata.get("pages", []):
+        page_data = page.copy()
+        if page_data.get("image_url"):
+            page_data["absolute_image_url"] = portal_url(request, page_data["image_url"])
+        pages.append(page_data)
+    return {
+        "id": document_id,
+        "name": metadata["original_name"],
+        "title": metadata.get("title") or metadata["original_name"],
+        "extension": metadata["extension"],
+        "content_type": metadata["content_type"],
+        "size": metadata["size"],
+        "page_count": metadata["page_count"],
+        "word_count": metadata["word_count"],
+        "created_at": metadata["created_at"],
+        "file_url": file_url,
+        "preview_url": preview_url,
+        "absolute_file_url": portal_url(request, file_url),
+        "absolute_preview_url": portal_url(request, preview_url),
+        "pages": pages,
+    }
+
+
+@app.post("/api/portal/documents/upload/")
+async def upload_portal_document(request: Request, file: UploadFile = File(...)):
+    original_name = sanitize_filename(file.filename or "")
+    extension = Path(original_name).suffix.lower()
+    if extension not in PORTAL_ALLOWED_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="仅支持上传 DOCX、PDF 文件")
+
+    document_id = uuid.uuid4().hex
+    document_dir = portal_document_dir(document_id)
+    document_dir.mkdir(parents=True, exist_ok=True)
+    source_path = document_dir / f"source{extension}"
+
+    size = 0
+    try:
+        with source_path.open("wb") as destination:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > PORTAL_MAX_UPLOAD_SIZE:
+                    raise HTTPException(status_code=400, detail="文件大小不能超过 20MB")
+                destination.write(chunk)
+        if size == 0:
+            raise HTTPException(status_code=400, detail="不能上传空文件")
+        validate_uploaded_file_signature(source_path, extension)
+        preview = build_portal_preview(document_id, source_path, extension)
+        content_type = (
+            "application/pdf"
+            if extension == ".pdf"
+            else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        )
+        metadata = {
+            "id": document_id,
+            "original_name": original_name,
+            "extension": extension[1:],
+            "content_type": content_type,
+            "size": size,
+            "source_file": source_path.name,
+            "title": preview.get("title") or original_name,
+            "page_count": preview["page_count"],
+            "word_count": preview["word_count"],
+            "pages": preview["pages"],
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        save_portal_metadata(metadata)
+        return {"success": True, "message": "文件上传成功", "document": serialize_portal_document(request, metadata)}
+    except HTTPException:
+        shutil.rmtree(document_dir, ignore_errors=True)
+        raise
+    except Exception as exc:
+        shutil.rmtree(document_dir, ignore_errors=True)
+        raise HTTPException(status_code=500, detail=f"文件处理失败: {exc}") from exc
+    finally:
+        await file.close()
+
+
+@app.get("/api/portal/documents/{document_id}/preview/")
+def get_portal_document_preview(document_id: str, request: Request):
+    metadata = load_portal_metadata(document_id)
+    return {"success": True, "document": serialize_portal_document(request, metadata)}
+
+
+@app.get("/api/portal/documents/{document_id}/file/")
+def get_portal_document_file(document_id: str):
+    metadata = load_portal_metadata(document_id)
+    file_path = portal_document_dir(document_id) / metadata["source_file"]
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="源文件不存在")
+    disposition = f"inline; filename*=UTF-8''{quote(metadata['original_name'])}"
+    return FileResponse(
+        file_path,
+        media_type=metadata["content_type"],
+        headers={"Content-Disposition": disposition},
+    )
+
+
+@app.get("/api/portal/documents/{document_id}/pages/{page_number}.png")
+def get_portal_pdf_page_image(document_id: str, page_number: int):
+    metadata = load_portal_metadata(document_id)
+    if metadata["extension"] != "pdf":
+        raise HTTPException(status_code=404, detail="该文档没有 PDF 页图")
+    page_count = int(metadata.get("page_count") or 0)
+    if page_number < 1 or page_number > page_count:
+        raise HTTPException(status_code=404, detail="页码不存在")
+    if fitz is None:
+        raise HTTPException(status_code=500, detail="服务端缺少 PyMuPDF 依赖")
+
+    document_dir = portal_document_dir(document_id)
+    pages_dir = document_dir / "pages"
+    pages_dir.mkdir(exist_ok=True)
+    image_path = pages_dir / f"{page_number}.png"
+    if not image_path.exists():
+        source_path = document_dir / metadata["source_file"]
+        if not source_path.exists():
+            raise HTTPException(status_code=404, detail="源文件不存在")
+        with fitz.open(source_path) as pdf:
+            page = pdf[page_number - 1]
+            pixmap = page.get_pixmap(matrix=fitz.Matrix(1.8, 1.8), alpha=False)
+            pixmap.save(image_path)
+    return FileResponse(image_path, media_type="image/png")
 
 
 @app.post("/api/recommendations/recommendations/recommend_clauses/")

@@ -11,6 +11,12 @@ npm run dev
 
 默认开发地址为 `http://127.0.0.1:5174/`。
 
+开发环境会将 `/api` 代理到 `http://127.0.0.1:8000`。如需改后端地址，可设置：
+
+```bash
+VITE_DEV_PROXY_TARGET=http://127.0.0.1:8000 npm run dev
+```
+
 ## 构建部署
 
 ```bash
@@ -27,3 +33,5 @@ docker run --rm -p 8080:80 contract-review-portal
 ```
 
 容器启动后访问 `http://127.0.0.1:8080/`。
+
+生产容器会将 `/api` 代理到 `http://backend:8000`，需要和后端服务处于同一 Docker 网络，或按部署环境调整 `nginx.conf`。
