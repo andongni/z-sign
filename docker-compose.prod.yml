@@ -7,9 +7,8 @@ services:
   backend:
     # 生产环境使用更多worker
     command: >
-      sh -c "python manage.py migrate &&
-             python manage.py collectstatic --noinput &&
-             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 8 --timeout 300 --access-logfile - --error-logfile -"
+      sh -c "python manage.py init-db &&
+             gunicorn app.main:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --workers 8 --timeout 300 --access-logfile - --error-logfile -"
     # 资源限制
     deploy:
       resources:
@@ -20,23 +19,6 @@ services:
           cpus: '2'
           memory: 2G
     # 日志配置
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "5"
-
-  celery:
-    # 生产环境使用更多并发
-    command: celery -A config worker --loglevel=info --concurrency=8 --max-tasks-per-child=1000
-    deploy:
-      resources:
-        limits:
-          cpus: '2'
-          memory: 2G
-        reservations:
-          cpus: '1'
-          memory: 1G
     logging:
       driver: "json-file"
       options:
@@ -82,4 +64,3 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
-

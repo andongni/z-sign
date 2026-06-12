@@ -1,6 +1,5 @@
 @echo off
-echo Starting Django Backend Server...
+echo Starting FastAPI Backend Server...
 cd backend
 python manage.py runserver 8897
 pause
-

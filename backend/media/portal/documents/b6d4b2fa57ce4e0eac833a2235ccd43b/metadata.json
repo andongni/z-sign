@@ -1,0 +1,128 @@
+{
+  "id": "b6d4b2fa57ce4e0eac833a2235ccd43b",
+  "original_name": "慕思意图识别模型微调步骤总结.pdf",
+  "extension": "pdf",
+  "content_type": "application/pdf",
+  "size": 1830643,
+  "source_file": "source.pdf",
+  "title": "慕思意图识别模型微调步骤总结​",
+  "page_count": 19,
+  "word_count": 4358,
+  "pages": [
+    {
+      "page_number": 1,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/1.png",
+      "text": "慕思意图识别模型微调步骤总结​\n意图识别模型微调结果\n1）微调场景介绍​\n整个模型微调包含3个微调场景，形成一个**\"意图识别→路由分发→专业响应\"**的三层架构：​\n现状痛点：之前用 Qwen3-14B 基座 + 提示词做所有事，上下文 token 长度达 5000-10000，推理速度\n慢、格式不稳、资源重，意图识别作为链路的首个环节，每次交互都要调用，如果用 14B 大模型做分\n类，就是极大的资源浪费而且慢。\n意图识别模型核心设计思想：小模型做分类，大模型做生成。 意图识别是一个分类任务，计算量小但\n需要快速响应，所以用4B小模型；睡眠问答和报告解读是生成式任务，需要深度理解和生成长文本，\n所以用14B大模型。​\n意图识别的核心角色\nTask3意图识别模型是整个系统的**\"入口守门员\"**，其判别结果直接决定了用户请求的路由走向：​\n代码块​\n用户输入 → [意图识别模型(4B)] → 判别意图类别\n                                    ├── 环境控制(4) → 直接调用IoT设备控制接口​\n                                    ├── 睡眠报告(5) → 路由到Task2报告解读模型\n(14B)\n                                    ├── 知识顾问(0,1,2,3) → 路由到Task1睡眠QA模\n型(14B)\n                                    └── 其他问题(6) → 通用对话兜底处理​\n这意味着：意图识别的准确率直接决定了整个系统的可用性。如果意图判错，用户说\"帮我调高床\n垫\"却被路由到了知识问答，体验将极差。因此，意图识别虽然是\"最小\"的模型，却是整个系统最关键\n的模块。​\n1\n2\n3\n4\n5"
+    },
+    {
+      "page_number": 2,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/2.png",
+      "text": "2）微调全流程技术路线概览​\n整个模型微调过程包括：定场景->定目标->定边界->选基座->备数据->选方法->配参数->训练->评估->\n迭代->部署​\n3）微调结果​\n最终实际结果：\n•\nF1达到 90.48%（同尺寸Qwen3-4B原始模型82.01%，飙升+8.47%）​\n•\n超越 Qwen3-14B 基座（84.45%），实现 SOTA性能反超​\n•\n格式错误率降至 0%​\n微调过程的11个步骤具体逻辑​\n步骤一：定场景​\n慕思将意图识别定位为**\"睡眠领域智能对话系统的意图路由网关\"**。​\n具体场景定义：\n•\n业务场景： 用户通过语音/文字与慕思智能硬件交互，系统需要自动识别用户意图并路由到正确的\n处理模块\n•\n技术场景： 多分类（7类）文本分类任务，支持多轮对话上下文理解​\n从7分类到4分类的场景简化，最初意图识别设计了7个标签：产品售后(0)、睡眠知识(1)、身体健康\n(2)、心理健康(3)、环境控制(4)、睡眠报告(5)、其他问题(6)​\n最终上线时合并为4类：知识顾问（合并了产品售后+睡眠知识+身体健康+心理健康）、睡眠报告、环\n境控制、其他问题，为什么合并？因为知识顾问的4个子类别最终都路由到同一个下游处理节点（睡眠\n顾问问答模型），细分它们在业务上没有额外价值，反而增加分类难度。\n之前用 Qwen3-14B 基座 + 提示词做所有事，上下文 token 长度达 5000-10000，推理速度慢、格式不\n稳、资源重，意图识别是判别式任务（输出是标签），需要的是快速、准确、格式统一，意图识别要\n优化的是延迟和吞吐（每次都跑，要快）。\n步骤二：定目标​"
+    },
+    {
+      "page_number": 3,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/3.png",
+      "text": "核心目标：以小博大，降本增效\n步骤三：定边界​\n(1) 类别边界的精确定义​\n每个意图标签都有明确的核心定义和\"硬边界\"标识：​\n(2) 意图混淆边界的详细枚举​\n这是慕思核心的边界工程——穷举了所有可能的混淆情况：​"
+    },
+    {
+      "page_number": 4,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/4.png",
+      "text": "(3) 多意图优先级规则​\n当用户输入中出现多个意图时，设计了明确的优先级排序：\n环境控制 > 睡眠报告 > 知识顾问 > 其他问题​\n每个优先级背后的业务逻辑：\n•\n环境控制最优先：涉及设备动作，有体感风险甚至安全问题。用户的主观预期是\"你应该先帮我执\n行\"，而不是先聊天讲知识。业务原则：动作优先于解释​\n•\n睡眠报告次优先：报告是个人数据+服务关键卖点，误判成知识顾问会让用户不满。业务原则：只\n要涉及\"我的报告/我的数据\"，就优先认为是报告交互​\n•\n知识顾问再次：大部分咨询都落在这里，如果既不是执行动作、也不是围绕个人报告，大概率就是\n知识顾问。被误判成其他（OTHER）危害相对小​\n•\n其他问题兜底：闲聊、无关问题、噪音输入。一旦有任何迹象指向前三类，就不要落在OTHER。业\n务原则：宁可错判到某个业务意图，也尽量不要把有诉求的问法扔进OTHER​\n(4) 数据层面的边界控制——种子生成策略​\n为确保数据覆盖面足够广，从3个维度生成训练数据种子：​\n(5) 数据量边界​\n每个标签的建议数据量也是精心设计的："
+    },
+    {
+      "page_number": 5,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/5.png",
+      "text": "总计约 10,926条 训练数据。​\n步骤四：选基座​\n1.1 选型范围：三大架构家族、19+模型配置​\n慕思项目在意图识别（Task3）场景中，系统性地对比了三大模型架构家族：​\n1.2 选型实验设计​\n项目不仅对比了模型架构，还交叉对比了3种数据输入格式：​"
+    },
+    {
+      "page_number": 6,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/6.png",
+      "text": "这意味着实际评测的模型配置数 = 5个BERT × 2种格式 + 3个LLM × 2种格式 + 2个Embedding × 1种\n格式 = 18种配置，加上Qwen3-14B baseline共19+种。​\n1.3 最终选型结果​\n从评测文档中19个模型的F1得分来看：​\n•\n最终胜出：Qwen3-4B-Instruct + SFT微调，F1=90.48%​\n•\n对比基线：Qwen3-14B（不微调，纯prompt）F1=84.45%​\n•\nBERT系列最佳：chinese-lert-base + context_query，F1约85%+​\n•\n4B模型微调后超越了14B基线模型6个百分点​\n这验证了项目的核心假设：小模型+领域微调 > 大模型+通用能力。​\n步骤五：备数据​\n1.1 标签体系设计：从7类到实际映射​\n核心标签映射（来自label_config.py ）：\n代码块​\nLABEL_MAP = {\n    0: \"产品售后\",\n    1: \"睡眠知识\",\n    2: \"身体健康\",\n    3: \"心理健康\",\n    4: \"环境控制\",\n    5: \"睡眠报告\",\n    6: \"其他问题\"\n}\n为什么是7个类别？ 这是经过业务梳理后的结果：\n•\n原始业务场景可能有更细的类别，但太多类别会导致分类困难\n•\n7个类别的设计遵循了互斥且完整（MECE）原则：每个用户意图有且只有一个归属类别，所有可能\n的意图都能被覆盖（\"其他问题\"作为兜底）​\n•\n从标签映射文档可以看到，项目做了大量的边界定义工作，例如区分\"产品售后\"和\"环境控制\"的关\n键在于用户是\"咨询\"还是\"指令\"​\n意图优先级排序：环境控制 > 睡眠报告 > 知识顾问 > 其他问题。这解决了多意图歧义问题——当一个输\n入可能属于多个类别时，按优先级决定归属。\n1.2 数据采集与种子数据策略​\n1\n2\n3\n4\n5\n6\n7\n8\n9"
+    },
+    {
+      "page_number": 7,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/7.png",
+      "text": "慕思项目的数据备制采用了**\"种子数据 + 大模型合成增强\"**的策略：​\nStep 1：采集真实种子数据​\n•\n从慕思实际用户交互日志中提取真实对话\n•\n人工标注初始种子数据集\n•\n每个标签类别确保有基础覆盖量\nStep 2：三维度种子扩展策略（来自数据需求文档）​\n种子数据从三个维度进行扩展：\nStep 3：大模型合成增强​\n•\n使用大模型（如Qwen3-14B）基于种子数据生成更多样本​\n•\n每个种子从三个维度分别扩展，实现数据量的指数级增长\n•\n生成后经过人工审核和去重\n1.3 数据分布与规模​\n从数据需求文档中可以看到各标签的数据量规划："
+    },
+    {
+      "page_number": 8,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/8.png",
+      "text": "测试集固定为696条样本，所有19+模型配置在同一测试集上评测，确保可比性。​\n1.4 数据的工程化处理​\n从代码结构data_project/task3/ 可以看出数据准备有完整的工程化流程：\n•\n数据合成增强代码\n•\n去重转换代码（避免重复样本导致过拟合）\n•\n统计分析代码（检查各类别数据分布是否均衡）\n•\n数据集格式为JSONL文件​\n•\n训练时自动拆分10%作为验证集（val_size: 0.1 ）​\n•\n最大序列长度：BERT为512，LLM和Embedding为1024​\n•\n支持数据打包（packing），但对话任务建议关闭​\n步骤六：选方法​\n1.1 慕思的方法选择全景图​\n慕思在\"选方法\"这一步，做了三个层面的方法选择，每个层面都有明确的对比和决策逻辑：​"
+    },
+    {
+      "page_number": 9,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/9.png",
+      "text": "1.2 训练框架选择​\n自研框架的技术设计：\n核心设计是统一训练入口 + 架构分支：​\n•\n统一的命令行参数定义（ModelArguments , DataTrainingArguments ）​\n•\n统一的数据加载流程（JSONL → HuggingFace Dataset）​\n•\n按model_architecture_type 分支的模型加载、数据预处理\n•\n统一的Trainer  API做训练​\n•\n统一的compute_metrics 做评估\n这种设计让19+种模型配置可以通过一个脚本+不同参数来运行，极大降低了实验管理的复杂度。​\n步骤七：配参数​ 比​"
+    },
+    {
+      "page_number": 10,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/10.png",
+      "text": "1.1 慕思的参数配置全景对比​\n慕思为不同架构配置了差异化的超参数，每个参数的选择都有明确的技术逻辑，分类模型训练\n（Task3）三套参数对比：​\n步骤八：训练​\n1.1 训练体系全景图​\n慕思的训练体系由两套并行的训练流水线组成，分别服务于不同的技术路线：\n代码块​\n流水线A：分类头微调（自研 multi_classify_factory）\n├── 19+种模型配置（BERT×5 + LLM×3 + Embedding×2，各配2种数据格式）​\n├── 统一入口：trainer_utils.py（1490行）​\n├── 统一测试集：696条（4种格式版本）​\n└── 训练数据：10926条​\n流水线B：SFT微调（LlamaFactory）\n├── Qwen3-4B SFT v1（rank=32）和 v2（rank=16）​\n├── Qwen3-14B 基线对比​\n1\n2\n3\n4\n5\n6\n7\n8\n9"
+    },
+    {
+      "page_number": 11,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/11.png",
+      "text": "└── 训练数据：intent_classify_task_sft_1216​\n步骤九：评估​\n1.1 评估体系全景图​\n慕思构建了一套四层架构的评估系统，具备工程级的健壮性和可扩展性：\n代码块​\n┌─────────────────────────────────────────────────────────┐​\n│  配置层（Config Layer）                                    │​\n│  test.yaml → 定义模型、数据集、API地址、model_type等          │​\n├─────────────────────────────────────────────────────────┤​\n│  解析层（Adapter Layer）                                   │​\n│  model_adapter.py → 按model_type构建输入消息                │​\n│  response_parser.py → 按model_type解析模型输出              │​\n├─────────────────────────────────────────────────────────┤​\n│  指标计算层（Metrics Layer）                                │​\n│  security_evaluator.py → F1/Acc/P/R + 混淆矩阵 + 分类报告   │​\n├─────────────────────────────────────────────────────────┤​\n│  报告生成层（Report Layer）                                 │​\n│  eval_results.csv + metrics.csv + confusion_matrices.csv  │​\n│  + class_report.csv + performance_summary                 │​\n└─────────────────────────────────────────────────────────┘​\n1.2 评估数据与测试集​\n测试集规模和分布：\n4种格式的测试集：​\n10\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15"
+    },
+    {
+      "page_number": 12,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/12.png",
+      "text": "为什么696条？为什么这个分布？​\n•\n696条确保每个类别至少有73条样本（最少的是\"身体健康\"），足以计算有统计意义的per-class指\n标\n•\n分布不完全均衡（最大127/最小73 = 1.74:1），这是有意设计——反映真实业务中各意图的自然频\n率\n•\n如果强制均衡（每类100条），评估结果会过于乐观，无法反映模型在真实分布下的表现​\n1.3 评估推理流程详解​\n慕思为不同模型类型设计了6种适配器，统一了输入构建和参数配置：​\n代码块​\n_ADAPTER_REGISTRY = {\n    'default': DefaultAdapter,          # 标准OpenAI模型​\n    'single_sequence': BERT_Single_sequence,  # BERT单序列​\n    'context_query': BERT_context_query,      # BERT双序列​\n    'qwen_sft': QwenSFTdAdapter,             # Qwen SFT模型​\n    'chat_template': Qwen_chat,              # Qwen原生chat_template​\n    'qwen_base': QwenSFTdAdapter             # Qwen基线模型​\n}\n每种适配器的差异化实现：\n1\n2\n3\n4\n5\n6\n7\n8"
+    },
+    {
+      "page_number": 13,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/13.png",
+      "text": "关键设计：Encoder模型 vs Decoder模型的API调用方式不同​\n代码块​\n# security_evaluator.py中的分支逻辑​\nif set_type == 'decoder':\n    final_params = {**api_params, \"messages\": messages}  # 标准OpenAI格式​\nelse:  # encoder\n    final_params = {**api_params, **messages}  # 展开dict，包含extra_body​\nEncoder模型（BERT）需要通过extra_body 传递context 和query 字段（非标准OpenAI格\n式），因此需要特殊处理。\n不同模型的输出格式不同，需要对应的解析器：\n代码块​\n_PARSER_REGISTRY = {\n    'single_sequence': parse_bert_single_response,   # 正则匹配 (ID: 3)​\n    'qwen_sft': parse_qwen3_SFT_response,           # JSON解析 {\"id\": 3}​\n    'context_query': parse_bert_single_response,\n    'chat_template': parse_qwen3_SFT_response,\n    'qwen_base': parse_base                          # 文本→标签映射​\n}\nB​十​\n1\n2\n3\n4\n5\n1\n2\n3\n4\n5\n6\n7"
+    },
+    {
+      "page_number": 14,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/14.png",
+      "text": "步骤十：迭代​\n1.1 迭代全景图​\n慕思的迭代过程横跨3个维度，涉及20+模型变体和多个数据/参数版本：​\n代码块​\n维度1：架构迭代（横向探索）\n  BERT×5模型×2格式 → Qwen3 LLM×3规模×2格式 → Qwen3 Embedding×2规模 → Qwen3-4B \nSFT\n  ↓ 同期并行实验\n维度2：数据迭代（纵向深入）\n  数据v1(1216版) → 评估 → 分析weak point → 数据v2/v3调整 → 重新训练\n维度3：参数迭代（精细调优）\n  SFT v1(rank=32, 12月22日) → 评估 → SFT v2(rank=16, 12月25日) → 评估\n1.2 聚焦最优​\n慕思的架构迭代遵循了一个**\"漏斗式\"筛选**的过程：​\n代码块​\n第一轮：全面铺开（19+配置同时实验）\n├── BERT家族: 5模型 × 2格式 = 10配置​\n├── Qwen3 LLM: 3模型 × 2格式 = 6配置（含NPU版本）​\n├── Qwen3 Embedding: 2模型 × 1-2格式 = 2-3配置​\n└── 统一评估：696条测试集，F1 macro排序​\n第二轮：聚焦胜出架构\n├── 结论：single_sequence/context_query格式 >> chat_template格式​\n├── 结论：Qwen3-4B-Instruct-2507-single_sequence 排名第一​\n└── 决定：在Qwen3-4B上做SFT深度优化​\n第三轮：SFT深度迭代\n├── v1(rank=32) → 评估F1=81.96%​\n├── v2(rank=16) → 评估F1=83.68%​\n└── 持续迭代优化...​\n从模型记录PDF和评测文档可以还原出迭代时间线：​\n1\n2\n3\n4\n5\n6\n7\n8\n9\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15"
+    },
+    {
+      "page_number": 15,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/15.png",
+      "text": "步骤十一：部署​\n1.1 部署架构全景图​\n慕思构建了一套完整的模型服务化体系，覆盖从LoRA合并到API服务的全链路：​\n代码块​\n┌──────────────────────────────────────────────────────┐​\n│  LoRA合并层                                            │​\n│  merge_lora.py → 基座模型+LoRA适配器 → 合并后的完整模型     │​\n├──────────────────────────────────────────────────────┤​\n│  模型服务层                                             │​\n│  intent_recognition_api.py (FastAPI)                   │​\n│  ├── 19+模型配置注册表(MODEL_CONFIGS)                    │​\n│  ├── 模型热加载/卸载机制                                  │​\n│  ├── OpenAI兼容API（/v1/chat/completions）              │​\n│  └── 3种输入格式的推理路径                                │​\n├──────────────────────────────────────────────────────┤​\n│  硬件适配层                                             │​\n│  ├── GPU部署（NVIDIA A100/V100）                        │​\n│  └── NPU部署（华为昇腾，Docker容器化）                     │​\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14"
+    },
+    {
+      "page_number": 16,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/16.png",
+      "text": "└──────────────────────────────────────────────────────┘​\n合并脚本（merge_lora.py）的核心逻辑：​\n代码块​\n# 1. 自动检测模型架构​\nmodel_name_lower = model_path.lower()\nif 'qwen3' in model_name_lower:\n    arch = 'qwen3'\nelif 'qwen2' in model_name_lower:\n    arch = 'qwen2'\nelse:\n    arch = 'auto'\n# 2. 加载基座模型​\nbase_model = \nAutoModelForSequenceClassification.from_pretrained(base_model_path)\n# 3. 加载LoRA适配器​\nmodel = PeftModel.from_pretrained(base_model, adapter_path)\n# 4. 合并权重​\nmerged_model = model.merge_and_unload()\n# 5. 保存合并后的模型（safetensors格式）​\nmerged_model.save_pretrained(output_path, safe_serialization=True)\nTask1的合并配置（qwen3_14b_lora_sft_merge.yaml）：​\n代码块​\nmodel_name_or_path: ./models/Qwen3-14B\nadapter_name_or_path: ./swanlab_outputs/sft/qwen3_14b_task1_lora_gpu_v6\ntemplate: qwen3\nexport_dir: ./outputs/qwen3_14b_task1_gpu_v6_1225\nexport_size: 5        # 分片大小5GB​\nexport_device: auto\nexport_legacy_format: false\n合并 vs 不合并的对比：​\n15\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n1\n2\n3\n4\n5\n6\n7"
+    },
+    {
+      "page_number": 17,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/17.png",
+      "text": "1.2 FastAPI服务​\nintent_recognition_api.py的核心架构：​\n代码块​\n# FastAPI应用​\napp = FastAPI(title=\"Intent Recognition API\")\n# 19+模型配置注册表​\nMODEL_CONFIGS = {\n    # BERT系列（10种配置）​\n    \"bert-base-chinese-single_sequence-classifier\": {\n        \"model_path\": \"...\", \"arch_type\": \"bert_classifier\", \"format\": \n\"single_sequence\"\n    },\n    \"bert-base-chinese-context_query-classifier\": {\n        \"model_path\": \"...\", \"arch_type\": \"bert_classifier\", \"format\": \n\"context_query\"\n    },\n    \"chinese-macbert-base-context_query-classifier\": {...},\n    \"chinese-macbert-base-single_sequence-classifier\": {...},\n    \"chinese-roberta-wwm-ext-context_query-classifier-GPU_V1\": {...},\n    # ... 更多BERT配置​\n    \n    # Qwen3 LLM系列（6种配置）​\n    \"Qwen3-0.6B-single_sequence-classifier\": {...},\n    \"Qwen3-0.6B-chat_template-classifier\": {...},\n    \"Qwen3-4B-Instruct-2507-single_sequence-classifier\": {...},\n    # ...\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17\n18\n19\n20\n21\n22"
+    },
+    {
+      "page_number": 18,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/18.png",
+      "text": "# Qwen3 Embedding系列（2种配置）​\n    \"Qwen3-Embedding-0.6B-chat_template-classifier\": {...},\n    # ...\n    \n    # SFT模型​\n    \"qwen3_4b_task3_gpu_v1_1222\": {...},\n    \"qwen3_4b_task3_gpu_v2_1225\": {...},\n}\n关键功能实现：\n（1）模型热加载/卸载机制​\n代码块​\n# 当前加载的模型​\nloaded_models = {}  # {model_name: (model, tokenizer)}\n@app.post(\"/v1/load_model\")\nasync def load_model(model_name: str):\n    \"\"\"将指定模型加载到GPU\"\"\"\n    config = MODEL_CONFIGS[model_name]\n    model = \nAutoModelForSequenceClassification.from_pretrained(config[\"model_path\"])\n    tokenizer = AutoTokenizer.from_pretrained(config[\"model_path\"])\n    model.to(\"cuda\").eval()\n    loaded_models[model_name] = (model, tokenizer)\n@app.post(\"/v1/unload_model\")\nasync def unload_model(model_name: str):\n    \"\"\"从GPU卸载指定模型\"\"\"\n    del loaded_models[model_name]\n    torch.cuda.empty_cache()  # 释放GPU显存​\n模型合并：\n•\nLoRA权重与基座模型合并：使用 merge_lora.py  将LoRA adapter权重永久合并到基座模型中​\n•\n合并配置（以Task1为例）：base=Qwen3-14B + \nadapter=qwen3_14b_task1_lora_gpu_v6 → \nexport=qwen3_14b_task1_gpu_v6_1225\n•\n合并后模型无需运行时加载PEFT库，推理路径更简单​\n服务化部署：\n•\n使用 FastAPI 构建推理服务 ( intent recognition api.py )​\n23\n24\n25\n26\n27\n28\n29\n30\n31\n1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16\n17"
+    },
+    {
+      "page_number": 19,
+      "type": "pdf_image",
+      "image_url": "/api/portal/documents/b6d4b2fa57ce4e0eac833a2235ccd43b/pages/19.png",
+      "text": "•\n使用 ast\n 构建推理服务 (\nte t_ ecog\nt o _ap .py )​\n•\n提供 OpenAI兼容API 接口（/v1/chat/completions  格式）​\n•\n支持模型热加载/卸载：可以在不停服务的情况下切换模型​\n•\n19+模型配置的按需加载：只将当前使用的模型加载到GPU，其他模型从显存中卸载​\n部署架构：\n代码块​\n用户请求 → API Gateway → FastAPI服务 → GPU推理\n                          ├── 模型加载管理器（热加载/卸载）​\n                          ├── 请求格式适配器（适配不同模型的输入格式）​\n                          └── 结果解析器（统一输出格式）​\n产研资料：\nhttps://deepexi.yuque.com/pxb7n8/atnvko/mwd5sxep5t0bsgnm​\nhttps://gitlab.deepexi.com/modelhub/deepeximusifactory/-/tree/dev​\n1\n2\n3\n4"
+    }
+  ],
+  "created_at": "2026-06-12T09:13:22"
+}
