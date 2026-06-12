@@ -12,10 +12,7 @@ ENV PYTHONUNBUFFERED=1 \
 
 # 安装系统依赖
 RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    default-libmysqlclient-dev \
-    pkg-config \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制requirements文件
@@ -28,7 +25,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # 创建必要的目录
-RUN mkdir -p /app/logs /app/media /app/staticfiles
+RUN mkdir -p /app/logs /app/media
 
 # 设置权限
 RUN chmod +x /app/manage.py
@@ -36,6 +33,5 @@ RUN chmod +x /app/manage.py
 # 暴露端口
 EXPOSE 8000
 
-# 启动命令（默认启动Django，可以通过docker-compose覆盖）
-CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
-
+# 启动命令（默认启动FastAPI，可以通过docker-compose覆盖）
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

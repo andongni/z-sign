@@ -1,16 +1,14 @@
 # AI智能合同审核系统
 
-基于Django和Vue3的AI智能合同审核系统，提供合同管理、智能审核、风险识别等功能。
+基于 FastAPI 和 Vue3 的 AI 智能合同审核系统，提供合同管理、智能审核、风险识别等功能。
 
 ## 技术栈
 
 ### 后端
-- Django 4.2.7
-- Django REST Framework
-- Celery (异步任务)
+- FastAPI
+- SQLAlchemy
 - MySQL 8.0
 - JWT认证
-- django-filter
 
 ### 前端
 - Vue 3
@@ -23,19 +21,14 @@
 
 ```
 .
-├── backend/              # Django后端
-│   ├── apps/            # 应用模块
-│   │   ├── users/       # 用户管理
-│   │   ├── contracts/  # 合同管理
-│   │   ├── reviews/    # 合同审核
-│   │   ├── rules/      # 规则引擎
-│   │   ├── clauses/    # 条款识别
-│   │   ├── risks/      # 风险识别
-│   │   ├── comparisons/# 对比分析
-│   │   ├── knowledge/  # 知识图谱
-│   │   └── recommendations/ # 智能推荐
-│   ├── config/         # 配置文件
-│   └── manage.py
+├── backend/              # FastAPI 后端
+│   ├── app/             # FastAPI 应用
+│   │   ├── api/         # API 路由
+│   │   ├── core/        # 配置、数据库、鉴权
+│   │   ├── models.py    # SQLAlchemy 模型
+│   │   ├── serializers.py
+│   │   └── services.py
+│   └── manage.py        # 兼容启动/初始化工具
 ├── frontend/            # Vue3前端
 │   ├── src/
 │   │   ├── views/      # 页面
@@ -68,24 +61,19 @@ cp .env.example .env
 CREATE DATABASE contract_review CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 ```
 
-4. 运行迁移：
+4. 初始化数据库表：
 ```bash
-python manage.py migrate
+python manage.py init-db
 ```
 
-5. 创建超级用户：
+5. 创建管理员：
 ```bash
-python manage.py createsuperuser
+python manage.py create-admin --username admin --email admin@example.com --password your-password
 ```
 
 6. 启动开发服务器：
 ```bash
 python manage.py runserver
-```
-
-7. 启动Celery Worker（新终端）：
-```bash
-celery -A config worker -l info
 ```
 
 ### 前端设置
@@ -156,21 +144,20 @@ npm run build
 ## API文档
 
 启动后端服务后，访问：
-- Django Admin: http://localhost:8897/admin/
-- API根路径: http://localhost:8897/api/
+- Swagger: http://localhost:8897/api/docs
+- API健康检查: http://localhost:8897/api/health/
 
 ## 默认账号
 
-创建超级用户后，使用以下信息登录：
+创建管理员后，使用以下信息登录：
 - 用户名：admin（或您创建的用户名）
 - 密码：您设置的密码
 
 ## 注意事项
 
 1. 确保MySQL 8.0已安装并运行
-2. 确保Redis已安装并运行（用于Celery）
-3. 生产环境请修改SECRET_KEY和DEBUG设置
-4. 建议使用虚拟环境管理Python依赖
+2. 生产环境请修改 SECRET_KEY 和 DEBUG 设置
+3. 建议使用虚拟环境管理 Python 依赖
 
 ## 开发计划
 
@@ -183,4 +170,3 @@ npm run build
 ## 许可证
 
 MIT License
-

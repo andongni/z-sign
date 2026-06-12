@@ -43,7 +43,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # Django后端
+  # FastAPI后端
   backend:
     build:
       context: ./backend
@@ -51,9 +51,8 @@ services:
     container_name: contract_review_backend
     restart: unless-stopped
     command: >
-      sh -c "python manage.py migrate &&
-             python manage.py collectstatic --noinput &&
-             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --timeout 300"
+      sh -c "python manage.py init-db &&
+             gunicorn app.main:app --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --workers 4 --timeout 300"
     environment:
       - DEBUG=${DEBUG:-False}
       - SECRET_KEY=${SECRET_KEY:-django-insecure-change-this-in-production}
@@ -64,78 +63,16 @@ services:
       - DB_PORT=3306
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - REDIS_CACHE_URL=redis://redis:6379/1
       - CORS_ALLOWED_ORIGINS=${CORS_ALLOWED_ORIGINS:-http://localhost:80,http://localhost:5173}
     ports:
       - "${BACKEND_PORT:-8000}:8000"
     volumes:
       - ./backend:/app
       - backend_media:/app/media
-      - backend_static:/app/staticfiles
       - backend_logs:/app/logs
     depends_on:
       db:
         condition: service_healthy
-      redis:
-        condition: service_healthy
-    networks:
-      - contract_review_network
-
-  # Celery Worker
-  celery:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: contract_review_celery
-    restart: unless-stopped
-    command: celery -A config worker --loglevel=info --concurrency=4
-    environment:
-      - DEBUG=${DEBUG:-False}
-      - SECRET_KEY=${SECRET_KEY:-django-insecure-change-this-in-production}
-      - DB_NAME=${DB_NAME:-contract_review}
-      - DB_USER=${DB_USER:-root}
-      - DB_PASSWORD=${DB_PASSWORD:-root123456}
-      - DB_HOST=db
-      - DB_PORT=3306
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - REDIS_CACHE_URL=redis://redis:6379/1
-    volumes:
-      - ./backend:/app
-      - backend_media:/app/media
-      - backend_logs:/app/logs
-    depends_on:
-      - db
-      - redis
-      - backend
-    networks:
-      - contract_review_network
-
-  # Celery Beat (如果需要定时任务)
-  celery-beat:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    container_name: contract_review_celery_beat
-    restart: unless-stopped
-    command: celery -A config beat --loglevel=info
-    environment:
-      - DEBUG=${DEBUG:-False}
-      - SECRET_KEY=${SECRET_KEY:-django-insecure-change-this-in-production}
-      - DB_NAME=${DB_NAME:-contract_review}
-      - DB_USER=${DB_USER:-root}
-      - DB_PASSWORD=${DB_PASSWORD:-root123456}
-      - DB_HOST=db
-      - DB_PORT=3306
-      - CELERY_BROKER_URL=redis://redis:6379/0
-      - CELERY_RESULT_BACKEND=redis://redis:6379/0
-    volumes:
-      - ./backend:/app
-      - backend_logs:/app/logs
-    depends_on:
-      - db
-      - redis
-      - backend
     networks:
       - contract_review_network
 
@@ -160,12 +97,9 @@ volumes:
     driver: local
   backend_media:
     driver: local
-  backend_static:
-    driver: local
   backend_logs:
     driver: local
 
 networks:
   contract_review_network:
     driver: bridge
-
