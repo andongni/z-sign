@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app import models  # noqa: F401 - imported so metadata contains all models
-from app.api import auth, contracts, reviews, users
+from app.api import auth, contracts, portal, reviews, users
 from app.api.catalogs import (
     clauses_router,
     comparisons_router,
@@ -56,6 +56,7 @@ def health():
 app.include_router(auth.router, prefix="/api")
 app.include_router(users.router, prefix="/api")
 app.include_router(contracts.router, prefix="/api")
+app.include_router(portal.router, prefix="/api")
 app.include_router(reviews.router, prefix="/api")
 app.include_router(rules_router, prefix="/api")
 app.include_router(clauses_router, prefix="/api")
@@ -63,4 +64,3 @@ app.include_router(risks_router, prefix="/api")
 app.include_router(comparisons_router, prefix="/api")
 app.include_router(knowledge_router, prefix="/api")
 app.include_router(recommendations_router, prefix="/api")
-

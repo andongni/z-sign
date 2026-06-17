@@ -1,6 +1,6 @@
 <template>
   <el-container class="layout-container" :class="{ 'is-sidebar-collapsed': isSidebarCollapsed }">
-    <el-aside :width="isSidebarCollapsed ? '88px' : '300px'" class="sidebar">
+    <el-aside :width="isSidebarCollapsed ? '76px' : '264px'" class="sidebar">
       <div class="brand">
         <div v-show="!isSidebarCollapsed" class="brand-left">
           <div class="brand-mark">
@@ -49,10 +49,6 @@
           <el-menu-item index="/reviews">
             <el-icon><Search /></el-icon>
             <span>合同审核</span>
-          </el-menu-item>
-          <el-menu-item index="/rules">
-            <el-icon><Setting /></el-icon>
-            <span>规则引擎</span>
           </el-menu-item>
           <el-menu-item index="/review-focus-config" v-if="userStore.user?.role === 'admin'">
             <el-icon><Edit /></el-icon>
@@ -198,11 +194,11 @@ const pageTitle = computed(() => {
     '/contracts': '合同管理',
     '/templates': '模板库',
     '/reviews': '合同审核',
-    '/rules': '规则引擎',
+    '/rules': '审核规则库',
     '/review-focus-config': '审核重点配置',
     '/ai-model-config': 'AI模型配置',
     '/rule-matches': '规则匹配记录',
-    '/knowledge': '知识图谱',
+    '/knowledge': '知识库',
     '/users': '用户管理',
     '/departments': '部门管理',
     '/audit-logs': '操作日志',
@@ -219,7 +215,7 @@ const moduleTitle = computed(() => {
   if (route.path.startsWith('/contracts')) return '文件库'
   if (route.path.startsWith('/reviews')) return '审查中心'
   if (route.path.startsWith('/rules') || route.path === '/rule-matches') return '审查规则库'
-  if (route.path.startsWith('/knowledge')) return '主体库'
+  if (route.path.startsWith('/knowledge')) return '知识库'
   if (route.path.startsWith('/users') || route.path.startsWith('/departments') || route.path.startsWith('/audit-logs') || route.path.startsWith('/permission-config')) return '组织权限'
   if (route.path.startsWith('/ai')) return '智能咨询'
   return '工作台'
@@ -276,27 +272,28 @@ onMounted(async () => {
 
 <style scoped>
 .layout-container {
-  height: 100vh;
+  height: 100dvh;
   color: #1f2430;
-  background: #f7f9fc;
+  background: var(--app-bg);
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
-  background: linear-gradient(180deg, #f7f8fe 0%, #f2f5fb 100%);
+  background: var(--app-sidebar);
   color: #252a36;
-  border-right: 1px solid #e2e7f0;
+  border-right: 1px solid var(--app-border);
   overflow: hidden;
   transition: width 0.18s ease;
 }
 
 .brand {
-  height: 92px;
+  height: 72px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 24px 0 16px;
+  padding: 0 16px 0 18px;
+  border-bottom: 1px solid var(--app-border);
 }
 
 .is-sidebar-collapsed .brand {
@@ -307,23 +304,23 @@ onMounted(async () => {
 .brand-left {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   min-width: 0;
 }
 
 .brand-mark {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   aspect-ratio: 1 / 1;
   display: grid;
   place-items: center;
   flex: 0 0 auto;
   color: #fff;
-  font-size: 22px;
+  font-size: 17px;
   overflow: hidden;
-  border-radius: 12px;
-  background: linear-gradient(135deg, #5d5df8 0%, #7775ff 100%);
-  box-shadow: 0 12px 28px rgba(80, 91, 238, 0.24);
+  border-radius: var(--app-radius);
+  background: var(--app-primary);
+  box-shadow: 0 10px 22px rgba(31, 97, 196, 0.18);
 }
 
 .brand-copy {
@@ -331,32 +328,32 @@ onMounted(async () => {
 }
 
 .brand-name {
-  color: #605cff;
-  font-size: 24px;
-  font-weight: 700;
+  color: var(--app-text);
+  font-size: 18px;
+  font-weight: 800;
   line-height: 1.1;
 }
 
 .brand-desc {
-  margin-top: 4px;
-  color: #8a93a5;
+  margin-top: 3px;
+  color: var(--app-text-muted);
   font-size: 12px;
 }
 
 .sidebar-toggle {
-  width: 40px;
-  height: 40px;
-  min-height: 40px;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
   padding: 0;
-  color: #8d96a8;
-  border: 1px solid #d9dfeb;
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.72);
+  color: var(--app-text-muted);
+  border: 1px solid transparent;
+  border-radius: var(--app-radius);
+  background: transparent;
 }
 
 .sidebar-toggle:hover {
-  color: #1677ff;
-  border-color: #c8d6ec;
+  color: var(--app-primary);
+  border-color: var(--app-border);
   background: #fff;
 }
 
@@ -367,36 +364,36 @@ onMounted(async () => {
 
 .sidebar-menu {
   border: none;
-  padding: 0 16px;
+  padding: 10px 12px 16px;
   background: transparent;
   transition: width 0.18s ease;
 }
 
 .sidebar-menu :deep(.el-menu-item) {
-  height: 56px;
-  margin: 3px 0;
-  padding: 0 16px !important;
-  color: #232733;
-  font-size: 16px;
-  font-weight: 500;
-  border-radius: 8px;
+  height: 42px;
+  margin: 2px 0;
+  padding: 0 12px !important;
+  color: var(--app-text-secondary);
+  font-size: 13px;
+  font-weight: 650;
+  border-radius: var(--app-radius);
 }
 
 .is-sidebar-collapsed .sidebar-menu {
-  width: 88px;
-  padding: 0 12px;
+  width: 76px;
+  padding: 10px 8px 16px;
 }
 
 .is-sidebar-collapsed .sidebar-menu :deep(.el-menu-item) {
   justify-content: center;
-  width: 64px;
+  width: 60px;
   padding: 0 !important;
 }
 
 .sidebar-menu :deep(.el-menu-item .el-icon) {
-  margin-right: 14px;
-  color: #202734;
-  font-size: 22px;
+  margin-right: 10px;
+  color: #5f6b7c;
+  font-size: 17px;
 }
 
 .is-sidebar-collapsed .sidebar-menu :deep(.el-menu-item .el-icon) {
@@ -405,58 +402,60 @@ onMounted(async () => {
 
 .is-sidebar-collapsed .sidebar-menu :deep(.el-menu-tooltip__trigger) {
   justify-content: center;
-  width: 64px;
+  width: 60px;
   padding: 0 !important;
 }
 
 .sidebar-menu :deep(.el-menu-item:hover) {
-  color: #1677ff;
-  background: rgba(233, 240, 251, 0.9);
+  color: var(--app-primary);
+  background: #edf4ff;
 }
 
 .sidebar-menu :deep(.el-menu-item.is-active) {
-  color: #252a36;
-  background: #e7e8f1;
+  color: var(--app-primary);
+  background: var(--app-primary-soft);
+  box-shadow: inset 3px 0 0 var(--app-primary);
 }
 
 .sidebar-menu :deep(.el-menu-item.is-active .el-icon) {
-  color: #1677ff;
+  color: var(--app-primary);
 }
 
 .content-shell {
   min-width: 0;
-  background: #fff;
+  background: var(--app-bg);
 }
 
 .header {
-  height: 92px;
-  background: linear-gradient(180deg, #f9fbff 0%, #fff 100%);
-  border-bottom: 1px solid #e5e9f2;
+  height: 72px;
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid var(--app-border);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px 0 64px;
+  padding: 0 24px 0 32px;
+  backdrop-filter: blur(10px);
 }
 
 .page-tabs {
   display: flex;
   align-items: center;
-  gap: 22px;
-  color: #667086;
-  font-size: 21px;
+  gap: 12px;
+  color: var(--app-text-muted);
+  font-size: 13px;
   line-height: 1;
 }
 
 .page-tabs strong {
-  color: #20242e;
-  font-size: 22px;
-  font-weight: 700;
+  color: var(--app-text);
+  font-size: 18px;
+  font-weight: 800;
 }
 
 .tab-divider {
   width: 1px;
-  height: 44px;
-  background: #dde3ef;
+  height: 18px;
+  background: var(--app-border-strong);
 }
 
 .header-right {
@@ -466,25 +465,32 @@ onMounted(async () => {
 }
 
 .language-button {
-  width: 54px;
-  height: 54px;
+  width: 38px;
+  height: 38px;
+  min-height: 38px;
   padding: 0;
-  color: #1f2530;
-  font-size: 20px;
+  color: var(--app-text-secondary);
+  font-size: 14px;
   font-weight: 700;
-  border-color: #e3e8f2;
-  border-radius: 10px;
-  background: #fbfdff;
+  border-color: var(--app-border);
+  border-radius: var(--app-radius);
+  background: #fff;
 }
 
 .user-info {
   display: flex;
   align-items: center;
   cursor: pointer;
-  height: 42px;
-  padding: 0 12px;
-  color: #4e596c;
-  border-radius: 8px;
+  height: 38px;
+  padding: 0 10px;
+  color: var(--app-text-secondary);
+  border: 1px solid transparent;
+  border-radius: var(--app-radius);
+}
+
+.user-info:hover {
+  border-color: var(--app-border);
+  background: #fff;
 }
 
 .user-info .el-icon {
@@ -492,8 +498,8 @@ onMounted(async () => {
 }
 
 .main-content {
-  --main-inline-padding: 44px;
-  background: #fff;
+  --main-inline-padding: 32px;
+  background: var(--app-bg);
   padding: 0;
   overflow-y: auto;
 }

@@ -65,7 +65,7 @@ const routes = [
       {
         path: 'rules',
         name: 'Rules',
-        component: () => import(/* webpackChunkName: "rules" */ '@/views/rules/RuleList.vue'),
+        redirect: { path: '/knowledge', query: { tab: 'rules' } },
       },
       {
         path: 'rule-matches',
@@ -141,4 +141,3 @@ router.beforeEach(async (to, from, next) => {
 })
 
 export default router
-

@@ -428,6 +428,28 @@ def serialize_review_rule(obj: models.ReviewRule) -> dict[str, Any]:
     }
 
 
+def serialize_file_review_checklist(obj: models.FileReviewChecklist) -> dict[str, Any]:
+    rules = [
+        serialize_review_rule(link.rule)
+        for link in sorted(obj.rule_links or [], key=lambda link: link.sort_order)
+        if link.rule and not link.rule.is_deleted
+    ]
+    return {
+        "id": obj.id,
+        "name": obj.name,
+        "description": obj.description,
+        "rule_count": len(rules),
+        "rule_ids": [rule["id"] for rule in rules],
+        "rules": rules,
+        "created_by": obj.created_by_id,
+        "created_by_name": user_name(obj.created_by),
+        "updated_by": obj.updated_by_id,
+        "updated_by_name": user_name(obj.updated_by),
+        "created_at": value(obj.created_at),
+        "updated_at": value(obj.updated_at),
+    }
+
+
 def serialize_rule_match(obj: models.RuleMatch) -> dict[str, Any]:
     return {
         "id": obj.id,
@@ -608,4 +630,3 @@ def serialize_recommendation(obj: models.Recommendation) -> dict[str, Any]:
         "is_accepted": obj.is_accepted,
         "created_at": value(obj.created_at),
     }
-

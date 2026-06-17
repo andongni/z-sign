@@ -363,6 +363,68 @@ class ReviewRule(Base, TimestampMixin):
     is_deleted = Column(Boolean, default=False, nullable=False)
 
     created_by = relationship("User")
+    checklist_links = relationship("FileReviewChecklistRule", cascade="all, delete-orphan", back_populates="rule")
+
+
+class FileReviewChecklist(Base, TimestampMixin):
+    __tablename__ = "rules_file_review_checklist"
+
+    id = Column(BigInt, primary_key=True, autoincrement=True)
+    name = Column(String(100), nullable=False)
+    description = Column(Text, default="", nullable=False)
+    created_by_id = Column(BigInt, ForeignKey("users_user.id"), nullable=True)
+    updated_by_id = Column(BigInt, ForeignKey("users_user.id"), nullable=True)
+    is_deleted = Column(Boolean, default=False, nullable=False)
+
+    created_by = relationship("User", foreign_keys=[created_by_id])
+    updated_by = relationship("User", foreign_keys=[updated_by_id])
+    rule_links = relationship(
+        "FileReviewChecklistRule",
+        cascade="all, delete-orphan",
+        back_populates="checklist",
+        order_by="FileReviewChecklistRule.sort_order",
+    )
+
+
+class FileReviewChecklistRule(Base):
+    __tablename__ = "rules_file_review_checklist_rule"
+    __table_args__ = (UniqueConstraint("checklist_id", "rule_id"),)
+
+    id = Column(BigInt, primary_key=True, autoincrement=True)
+    checklist_id = Column(BigInt, ForeignKey("rules_file_review_checklist.id"), nullable=False)
+    rule_id = Column(BigInt, ForeignKey("rules_review_rule.id"), nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=now, nullable=False)
+
+    checklist = relationship("FileReviewChecklist", back_populates="rule_links")
+    rule = relationship("ReviewRule", back_populates="checklist_links")
+
+
+class PortalFileReviewRecord(Base, TimestampMixin):
+    __tablename__ = "portal_file_review_record"
+
+    id = Column(BigInt, primary_key=True, autoincrement=True)
+    document_id = Column(String(32), nullable=False, index=True)
+    document_name = Column(String(255), default="", nullable=False)
+    document_extension = Column(String(20), default="", nullable=False)
+    document_size = Column(BigInt, default=0, nullable=False)
+    page_count = Column(Integer, default=0, nullable=False)
+    word_count = Column(Integer, default=0, nullable=False)
+    checklist_id = Column(BigInt, ForeignKey("rules_file_review_checklist.id"), nullable=True)
+    checklist_name = Column(String(100), default="", nullable=False)
+    rule_count = Column(Integer, default=0, nullable=False)
+    status = Column(String(20), default="processing", nullable=False)
+    model = Column(String(100), default="", nullable=False)
+    summary = Column(JSON, nullable=True)
+    pages = Column(JSON, nullable=True)
+    request_payload = Column(JSON, nullable=True)
+    error_message = Column(Text, default="", nullable=False)
+    started_at = Column(DateTime, default=now, nullable=False)
+    completed_at = Column(DateTime, nullable=True)
+    created_by_id = Column(BigInt, ForeignKey("users_user.id"), nullable=True)
+
+    checklist = relationship("FileReviewChecklist")
+    created_by = relationship("User")
 
 
 class RuleMatch(Base):

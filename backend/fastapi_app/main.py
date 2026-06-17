@@ -9,6 +9,7 @@ import os
 import re
 import secrets
 import shutil
+import time
 import uuid
 import zipfile
 from dataclasses import dataclass
@@ -162,6 +163,16 @@ def encode_db_value(key: str, value: Any) -> Any:
 
 def now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def generate_review_rule_code() -> str:
+    date_part = datetime.now().strftime("%Y%m%d")
+    timestamp_tail = int(time.time() * 1000) % 100000
+    for offset in range(100000):
+        code = f"{date_part}{(timestamp_tail + offset) % 100000:05d}"
+        if not db_one("SELECT id FROM rules_review_rule WHERE rule_code = %s LIMIT 1", (code,)):
+            return code
+    raise HTTPException(status_code=400, detail="规则编码生成失败，请稍后重试")
 
 
 def make_token(user: dict[str, Any], token_type: str) -> str:
@@ -417,6 +428,8 @@ def get_resource(spec: ResourceSpec, row_id: int) -> dict[str, Any]:
 
 def create_resource(spec: ResourceSpec, payload: dict[str, Any], extra: dict[str, Any] | None = None):
     data = filter_payload(payload, spec.create_fields, spec.aliases)
+    if spec.table == "rules_review_rule":
+        data["rule_code"] = generate_review_rule_code()
     data.update(extra or {})
     if "created_at" in spec.fields:
         data.setdefault("created_at", now())

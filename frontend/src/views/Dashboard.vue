@@ -1,10 +1,10 @@
 <template>
-  <div class="dashboard">
-    <el-row :gutter="20" class="stats-row">
-      <el-col :span="6">
+  <div class="dashboard" v-loading="loading">
+    <el-row :gutter="16" class="stats-row">
+      <el-col :xs="24" :sm="12" :lg="6">
         <el-card class="stat-card">
           <div class="stat-content">
-            <div class="stat-icon" style="background-color: #409eff">
+            <div class="stat-icon is-contract">
               <el-icon><Document /></el-icon>
             </div>
             <div class="stat-info">
@@ -14,10 +14,10 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :lg="6">
         <el-card class="stat-card">
           <div class="stat-content">
-            <div class="stat-icon" style="background-color: #67c23a">
+            <div class="stat-icon is-review">
               <el-icon><Search /></el-icon>
             </div>
             <div class="stat-info">
@@ -27,10 +27,10 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :lg="6">
         <el-card class="stat-card">
           <div class="stat-content">
-            <div class="stat-icon" style="background-color: #e6a23c">
+            <div class="stat-icon is-risk">
               <el-icon><Warning /></el-icon>
             </div>
             <div class="stat-info">
@@ -40,10 +40,10 @@
           </div>
         </el-card>
       </el-col>
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :lg="6">
         <el-card class="stat-card">
           <div class="stat-content">
-            <div class="stat-icon" style="background-color: #f56c6c">
+            <div class="stat-icon is-template">
               <el-icon><Files /></el-icon>
             </div>
             <div class="stat-info">
@@ -55,47 +55,47 @@
       </el-col>
     </el-row>
 
-    <el-row :gutter="20" style="margin-top: 20px">
-      <el-col :span="12">
-        <el-card>
+    <el-row :gutter="16" class="dashboard-row">
+      <el-col :xs="24" :lg="12">
+        <el-card class="chart-card">
           <template #header>
             <span>合同状态分布</span>
           </template>
-          <v-chart :option="contractStatusChartOption" style="height: 300px" />
+          <v-chart :option="contractStatusChartOption" class="chart" />
         </el-card>
       </el-col>
-      <el-col :span="12">
-        <el-card>
+      <el-col :xs="24" :lg="12">
+        <el-card class="chart-card">
           <template #header>
             <span>审核任务状态分布</span>
           </template>
-          <v-chart :option="reviewStatusChartOption" style="height: 300px" />
+          <v-chart :option="reviewStatusChartOption" class="chart" />
         </el-card>
       </el-col>
     </el-row>
 
-    <el-row :gutter="20" style="margin-top: 20px">
-      <el-col :span="12">
-        <el-card>
+    <el-row :gutter="16" class="dashboard-row">
+      <el-col :xs="24" :lg="12">
+        <el-card class="chart-card">
           <template #header>
             <span>合同类型分布</span>
           </template>
-          <v-chart :option="contractTypeChartOption" style="height: 300px" />
+          <v-chart :option="contractTypeChartOption" class="chart" />
         </el-card>
       </el-col>
-      <el-col :span="12">
-        <el-card>
+      <el-col :xs="24" :lg="12">
+        <el-card class="chart-card">
           <template #header>
             <span>月度合同趋势</span>
           </template>
-          <v-chart :option="monthlyTrendChartOption" style="height: 300px" />
+          <v-chart :option="monthlyTrendChartOption" class="chart" />
         </el-card>
       </el-col>
     </el-row>
 
-    <el-row :gutter="20" style="margin-top: 20px">
-      <el-col :span="12">
-        <el-card>
+    <el-row :gutter="16" class="dashboard-row">
+      <el-col :xs="24" :lg="12">
+        <el-card class="table-card">
           <template #header>
             <span>最近合同</span>
           </template>
@@ -114,8 +114,8 @@
           </el-table>
         </el-card>
       </el-col>
-      <el-col :span="12">
-        <el-card>
+      <el-col :xs="24" :lg="12">
+        <el-card class="table-card">
           <template #header>
             <span>审核任务</span>
           </template>
@@ -171,6 +171,7 @@ const stats = ref({
   templates: 0,
 })
 
+const loading = ref(false)
 const recentContracts = ref([])
 const recentReviews = ref([])
 const contractStatusData = ref({})
@@ -216,6 +217,7 @@ const contractStatusChartOption = computed(() => {
     name: getStatusText(name),
   }))
   return {
+    color: ['#1677ff', '#18a058', '#d9901a', '#e5484d', '#6f7b8f'],
     tooltip: {
       trigger: 'item',
       formatter: '{a} <br/>{b}: {c} ({d}%)',
@@ -223,6 +225,10 @@ const contractStatusChartOption = computed(() => {
     legend: {
       orient: 'vertical',
       left: 'left',
+      textStyle: {
+        color: '#526074',
+        fontSize: 12,
+      },
     },
     series: [
       {
@@ -232,9 +238,9 @@ const contractStatusChartOption = computed(() => {
         data,
         emphasis: {
           itemStyle: {
-            shadowBlur: 10,
+            shadowBlur: 8,
             shadowOffsetX: 0,
-            shadowColor: 'rgba(0, 0, 0, 0.5)',
+            shadowColor: 'rgba(31, 43, 77, 0.18)',
           },
         },
       },
@@ -248,6 +254,7 @@ const reviewStatusChartOption = computed(() => {
     name: getReviewStatusText(name),
   }))
   return {
+    color: ['#1677ff', '#18a058', '#d9901a', '#e5484d', '#6f7b8f'],
     tooltip: {
       trigger: 'item',
       formatter: '{a} <br/>{b}: {c} ({d}%)',
@@ -255,6 +262,10 @@ const reviewStatusChartOption = computed(() => {
     legend: {
       orient: 'vertical',
       left: 'left',
+      textStyle: {
+        color: '#526074',
+        fontSize: 12,
+      },
     },
     series: [
       {
@@ -264,9 +275,9 @@ const reviewStatusChartOption = computed(() => {
         data,
         emphasis: {
           itemStyle: {
-            shadowBlur: 10,
+            shadowBlur: 8,
             shadowOffsetX: 0,
-            shadowColor: 'rgba(0, 0, 0, 0.5)',
+            shadowColor: 'rgba(31, 43, 77, 0.18)',
           },
         },
       },
@@ -280,6 +291,7 @@ const contractTypeChartOption = computed(() => {
     name: getContractTypeText(name),
   }))
   return {
+    color: ['#1677ff', '#18a058', '#d9901a', '#e5484d', '#6f7b8f'],
     tooltip: {
       trigger: 'item',
       formatter: '{a} <br/>{b}: {c} ({d}%)',
@@ -287,6 +299,10 @@ const contractTypeChartOption = computed(() => {
     legend: {
       orient: 'vertical',
       left: 'left',
+      textStyle: {
+        color: '#526074',
+        fontSize: 12,
+      },
     },
     series: [
       {
@@ -296,7 +312,7 @@ const contractTypeChartOption = computed(() => {
         avoidLabelOverlap: false,
         itemStyle: {
           borderRadius: 10,
-          borderColor: '#fff',
+          borderColor: '#ffffff',
           borderWidth: 2,
         },
         label: {
@@ -306,8 +322,9 @@ const contractTypeChartOption = computed(() => {
         emphasis: {
           label: {
             show: true,
-            fontSize: '30',
+            fontSize: 22,
             fontWeight: 'bold',
+            color: '#1f2937',
           },
         },
         labelLine: {
@@ -323,15 +340,38 @@ const monthlyTrendChartOption = computed(() => {
   const months = monthlyTrendData.value.map(item => item.month)
   const values = monthlyTrendData.value.map(item => item.count)
   return {
+    color: ['#1677ff'],
+    grid: {
+      top: 28,
+      right: 18,
+      bottom: 28,
+      left: 42,
+    },
     tooltip: {
       trigger: 'axis',
     },
     xAxis: {
       type: 'category',
       data: months,
+      axisLine: {
+        lineStyle: {
+          color: '#d8e0ec',
+        },
+      },
+      axisLabel: {
+        color: '#64748b',
+      },
     },
     yAxis: {
       type: 'value',
+      splitLine: {
+        lineStyle: {
+          color: '#edf2f7',
+        },
+      },
+      axisLabel: {
+        color: '#64748b',
+      },
     },
     series: [
       {
@@ -339,6 +379,10 @@ const monthlyTrendChartOption = computed(() => {
         type: 'line',
         data: values,
         smooth: true,
+        symbolSize: 7,
+        lineStyle: {
+          width: 3,
+        },
         areaStyle: {
           color: {
             type: 'linear',
@@ -348,7 +392,7 @@ const monthlyTrendChartOption = computed(() => {
             y2: 1,
             colorStops: [
               { offset: 0, color: 'rgba(64, 158, 255, 0.3)' },
-              { offset: 1, color: 'rgba(64, 158, 255, 0.1)' },
+              { offset: 1, color: 'rgba(64, 158, 255, 0.04)' },
             ],
           },
         },
@@ -378,6 +422,7 @@ const getReviewStatusText = (status) => {
 }
 
 const fetchData = async () => {
+  loading.value = true
   try {
     // 获取统计数据
     const [contractsRes, reviewsRes, templatesRes] = await Promise.all([
@@ -439,6 +484,8 @@ const fetchData = async () => {
     stats.value.risks = reviews.filter(r => r.result?.risk_level === 'high').length
   } catch (error) {
     console.error('获取数据失败:', error)
+  } finally {
+    loading.value = false
   }
 }
 
@@ -449,48 +496,91 @@ onMounted(() => {
 
 <style scoped>
 .dashboard {
-  padding: 20px;
+  padding: 0;
 }
 
 .stats-row {
-  margin-bottom: 20px;
+  row-gap: 16px;
 }
 
 .stat-card {
-  height: 120px;
+  height: 104px;
 }
 
 .stat-content {
   display: flex;
   align-items: center;
+  height: 100%;
+  gap: 14px;
 }
 
 .stat-icon {
-  width: 60px;
-  height: 60px;
-  border-radius: 8px;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+  border-radius: var(--app-radius);
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 24px;
-  margin-right: 20px;
+  font-size: 20px;
+}
+
+.stat-icon.is-contract {
+  color: #1677ff;
+  background: #eef6ff;
+}
+
+.stat-icon.is-review {
+  color: #18a058;
+  background: #edf9f2;
+}
+
+.stat-icon.is-risk {
+  color: #d9901a;
+  background: #fff8e8;
+}
+
+.stat-icon.is-template {
+  color: #526074;
+  background: #f3f5f9;
 }
 
 .stat-info {
   flex: 1;
+  min-width: 0;
 }
 
 .stat-value {
-  font-size: 32px;
-  font-weight: bold;
-  color: #303133;
-  margin-bottom: 8px;
+  margin-bottom: 2px;
+  color: var(--app-text);
+  font-size: 28px;
+  font-weight: 800;
+  line-height: 1.1;
 }
 
 .stat-label {
-  font-size: 14px;
-  color: #909399;
+  color: var(--app-text-muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.dashboard-row {
+  margin-top: 16px;
+  row-gap: 16px;
+}
+
+.chart-card,
+.table-card {
+  height: 100%;
+}
+
+.chart {
+  height: 300px;
+}
+
+@media (max-width: 768px) {
+  .chart {
+    height: 260px;
+  }
 }
 </style>
-

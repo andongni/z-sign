@@ -1,3 +1,4 @@
+import time
 from datetime import datetime
 from decimal import Decimal
 
@@ -6,12 +7,13 @@ from sqlalchemy.orm import selectinload
 
 from app import models
 from app.api.deps import CurrentUser, DbSession
-from app.api.router_utils import apply_filters, commit_or_400, create_item, delete_item, get_or_404, paginate, update_item
+from app.api.router_utils import apply_filters, commit_or_400, create_item, delete_item, get_or_404, paginate, parse_bool, update_item
 from app.serializers import (
     serialize_case,
     serialize_comparison_diff,
     serialize_comparison_task,
     serialize_contract_clause,
+    serialize_file_review_checklist,
     serialize_knowledge_entity,
     serialize_knowledge_relation,
     serialize_recommendation,
@@ -44,20 +46,205 @@ def list_rules(request: Request, db: DbSession, _: CurrentUser):
         default_ordering=["-priority", "-created_at"],
         aliases={"created_by": "created_by_id"},
     )
-    query = query.filter(models.ReviewRule.is_active.is_(True))
+    if "is_active" not in request.query_params and not parse_bool(request.query_params.get("include_inactive", False)):
+        query = query.filter(models.ReviewRule.is_active.is_(True))
+    query.order_by()
     return paginate(query, request, serialize_review_rule)
+
+
+def checklist_query(db: DbSession):
+    return db.query(models.FileReviewChecklist).options(
+        selectinload(models.FileReviewChecklist.created_by),
+        selectinload(models.FileReviewChecklist.updated_by),
+        selectinload(models.FileReviewChecklist.rule_links).selectinload(models.FileReviewChecklistRule.rule).selectinload(models.ReviewRule.created_by),
+    )
+
+
+def normalize_rule_ids(payload: dict) -> list[int]:
+    raw_rule_ids = payload.get("rule_ids")
+    if raw_rule_ids is None and isinstance(payload.get("rules"), list):
+        raw_rule_ids = [item.get("id") if isinstance(item, dict) else item for item in payload["rules"]]
+    if raw_rule_ids is None:
+        return []
+    if not isinstance(raw_rule_ids, list):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="rule_ids必须是数组")
+
+    rule_ids: list[int] = []
+    seen: set[int] = set()
+    for raw in raw_rule_ids:
+        try:
+            rule_id = int(raw)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="规则ID格式不正确")
+        if rule_id not in seen:
+            seen.add(rule_id)
+            rule_ids.append(rule_id)
+    return rule_ids
+
+
+def ensure_checklist_name_available(db: DbSession, name: str, exclude_id: int | None = None) -> None:
+    query = db.query(models.FileReviewChecklist).filter(
+        models.FileReviewChecklist.name == name,
+        models.FileReviewChecklist.is_deleted.is_(False),
+    )
+    if exclude_id is not None:
+        query = query.filter(models.FileReviewChecklist.id != exclude_id)
+    if query.first():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="审查清单名称已存在")
+
+
+def validate_checklist_payload(db: DbSession, payload: dict, *, require_rules: bool = True, exclude_id: int | None = None) -> tuple[str, str, list[int]]:
+    name = str(payload.get("name") or payload.get("checklist_name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="审查清单名称不能为空")
+    if len(name) > 100:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="审查清单名称不能超过100个字符")
+    ensure_checklist_name_available(db, name, exclude_id=exclude_id)
+
+    rule_ids = normalize_rule_ids(payload)
+    if require_rules and not rule_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="请至少选择一条审查规则")
+    description = str(payload.get("description") or "").strip()
+    return name, description, rule_ids
+
+
+def set_checklist_rules(db: DbSession, checklist: models.FileReviewChecklist, rule_ids: list[int]) -> None:
+    if checklist.id:
+        db.query(models.FileReviewChecklistRule).filter(
+            models.FileReviewChecklistRule.checklist_id == checklist.id
+        ).delete(synchronize_session=False)
+        db.flush()
+        db.expire(checklist, ["rule_links"])
+
+    if not rule_ids:
+        checklist.rule_links = []
+        return
+
+    rules = (
+        db.query(models.ReviewRule)
+        .filter(
+            models.ReviewRule.id.in_(rule_ids),
+            models.ReviewRule.is_deleted.is_(False),
+            models.ReviewRule.is_active.is_(True),
+        )
+        .all()
+    )
+    existing_ids = {rule.id for rule in rules}
+    missing_ids = [rule_id for rule_id in rule_ids if rule_id not in existing_ids]
+    if missing_ids:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"规则不存在或未启用: {missing_ids}")
+
+    checklist.rule_links = [
+        models.FileReviewChecklistRule(rule_id=rule_id, sort_order=index)
+        for index, rule_id in enumerate(rule_ids)
+    ]
+
+
+@rules_router.get("/checklists/")
+def list_checklists(request: Request, db: DbSession, _: CurrentUser):
+    query = checklist_query(db)
+    query = apply_filters(
+        query,
+        models.FileReviewChecklist,
+        request,
+        filter_fields=["name"],
+        search_fields=["name", "description"],
+        ordering_fields=["updated_at", "created_at", "name"],
+        default_ordering=["-updated_at"],
+    )
+    return paginate(query, request, serialize_file_review_checklist)
+
+
+@rules_router.post("/checklists/", status_code=status.HTTP_201_CREATED)
+def create_checklist(db: DbSession, current_user: CurrentUser, payload: dict = Body(...)):
+    name, description, rule_ids = validate_checklist_payload(db, payload)
+    item = models.FileReviewChecklist(
+        name=name,
+        description=description,
+        created_by_id=current_user.id,
+        updated_by_id=current_user.id,
+    )
+    db.add(item)
+    db.flush()
+    set_checklist_rules(db, item, rule_ids)
+    commit_or_400(db)
+    return serialize_file_review_checklist(
+        checklist_query(db).filter(models.FileReviewChecklist.id == item.id).first()
+    )
+
+
+@rules_router.get("/checklists/{item_id}/")
+def retrieve_checklist(item_id: int, db: DbSession, _: CurrentUser):
+    item = checklist_query(db).filter(
+        models.FileReviewChecklist.id == item_id,
+        models.FileReviewChecklist.is_deleted.is_(False),
+    ).first()
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="资源不存在")
+    return serialize_file_review_checklist(item)
+
+
+@rules_router.patch("/checklists/{item_id}/")
+@rules_router.put("/checklists/{item_id}/")
+def update_checklist(item_id: int, db: DbSession, current_user: CurrentUser, payload: dict = Body(...)):
+    item = checklist_query(db).filter(
+        models.FileReviewChecklist.id == item_id,
+        models.FileReviewChecklist.is_deleted.is_(False),
+    ).first()
+    if not item:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="资源不存在")
+
+    name, description, rule_ids = validate_checklist_payload(db, payload, exclude_id=item.id)
+    item.name = name
+    item.description = description
+    item.updated_by_id = current_user.id
+    set_checklist_rules(db, item, rule_ids)
+    commit_or_400(db)
+    return serialize_file_review_checklist(
+        checklist_query(db).filter(models.FileReviewChecklist.id == item.id).first()
+    )
+
+
+@rules_router.delete("/checklists/{item_id}/", status_code=status.HTTP_204_NO_CONTENT)
+def delete_checklist(item_id: int, db: DbSession, _: CurrentUser):
+    delete_item(db, get_or_404(db, models.FileReviewChecklist, item_id))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+def generate_review_rule_code(db: DbSession) -> str:
+    now = datetime.now()
+    date_part = now.strftime("%Y%m%d")
+    timestamp_tail = int(time.time() * 1000) % 100000
+
+    for offset in range(100000):
+        code = f"{date_part}{(timestamp_tail + offset) % 100000:05d}"
+        exists = db.query(models.ReviewRule.id).filter(models.ReviewRule.rule_code == code).first()
+        if not exists:
+            return code
+
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="规则编码生成失败，请稍后重试")
 
 
 @rules_router.post("/rules/", status_code=status.HTTP_201_CREATED)
 def create_rule(db: DbSession, current_user: CurrentUser, payload: dict = Body(...)):
-    item = create_item(
-        db,
-        models.ReviewRule,
-        payload,
-        aliases={"created_by": "created_by_id"},
-        readonly={"id", "created_at", "updated_at", "created_by_id"},
-        extra={"created_by_id": current_user.id},
+    item = models.ReviewRule(
+        rule_code=generate_review_rule_code(db),
+        rule_name=str(payload.get("rule_name") or "").strip(),
+        rule_type=payload.get("rule_type") or "general",
+        industry=str(payload.get("industry") or "").strip(),
+        category=str(payload.get("category") or "").strip(),
+        priority=int(payload.get("priority") or 0),
+        rule_content=payload.get("rule_content") or {},
+        risk_level=payload.get("risk_level") or "",
+        legal_basis=str(payload.get("legal_basis") or "").strip(),
+        description=str(payload.get("description") or "").strip(),
+        is_active=parse_bool(payload.get("is_active", True)),
+        version=int(payload.get("version") or 1),
+        created_by_id=current_user.id,
     )
+    db.add(item)
+    commit_or_400(db)
+    db.refresh(item)
     return serialize_review_rule(item)
 
 
@@ -69,7 +256,7 @@ def retrieve_rule(item_id: int, db: DbSession, _: CurrentUser):
 @rules_router.patch("/rules/{item_id}/")
 @rules_router.put("/rules/{item_id}/")
 def update_rule(item_id: int, db: DbSession, _: CurrentUser, payload: dict = Body(...)):
-    item = update_item(db, get_or_404(db, models.ReviewRule, item_id), payload, aliases={"created_by": "created_by_id"}, readonly={"id", "created_at", "updated_at", "created_by_id"})
+    item = update_item(db, get_or_404(db, models.ReviewRule, item_id), payload, aliases={"created_by": "created_by_id"}, readonly={"id", "rule_code", "created_at", "updated_at", "created_by_id"})
     return serialize_review_rule(item)
 
 
@@ -573,4 +760,3 @@ def reject_recommendation(item_id: int, db: DbSession, _: CurrentUser):
     item.is_accepted = False
     commit_or_400(db)
     return serialize_recommendation(item)
-
