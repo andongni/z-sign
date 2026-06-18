@@ -5,12 +5,13 @@ import re
 import shutil
 import uuid
 import zipfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, selectinload
 
@@ -18,6 +19,7 @@ from app import models
 from app.api.deps import CurrentUser, DbSession
 from app.api.router_utils import apply_filters, paginate
 from app.core.config import get_settings
+from app.core.database import SessionLocal
 from app.serializers import serialize_file_review_checklist, serialize_review_rule
 from app.services import AIService
 
@@ -52,6 +54,20 @@ PORTAL_RULE_REVIEW_SYSTEM_PROMPT = (
     "只输出JSON，不要输出Markdown代码块或额外解释。"
 )
 PORTAL_REVIEW_CHUNK_SIZE = int(os.getenv("PORTAL_REVIEW_CHUNK_SIZE", "1200"))
+
+
+def read_positive_int_env(name: str, default: int, maximum: int | None = None) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+    value = max(1, value)
+    if maximum is not None:
+        value = min(value, maximum)
+    return value
+
+
+PORTAL_REVIEW_WORKERS = read_positive_int_env("PORTAL_REVIEW_WORKERS", 4, 16)
 
 
 def sanitize_filename(filename: str) -> str:
@@ -481,6 +497,32 @@ def portal_checklist_query(db: Session):
     )
 
 
+def calculate_review_duration_seconds(started_at: datetime | None, completed_at: datetime | None) -> int:
+    if not started_at:
+        return 0
+    end_at = completed_at or datetime.now()
+    return max(0, int((end_at - started_at).total_seconds()))
+
+
+def set_portal_review_record_finished(
+    record: models.PortalFileReviewRecord,
+    status: str,
+    task_status: str | None = None,
+) -> None:
+    completed_at = datetime.now()
+    record.status = status
+    record.task_status = task_status or ("succeeded" if status == "completed" else status)
+    record.completed_at = completed_at
+    record.duration_seconds = calculate_review_duration_seconds(record.started_at, completed_at)
+
+
+def get_portal_review_duration_seconds(record: models.PortalFileReviewRecord) -> int:
+    stored_duration = int(getattr(record, "duration_seconds", 0) or 0)
+    if stored_duration > 0:
+        return stored_duration
+    return calculate_review_duration_seconds(record.started_at, record.completed_at)
+
+
 def serialize_portal_review_record(record: models.PortalFileReviewRecord, include_result: bool = False) -> dict[str, Any]:
     summary = record.summary or {}
     payload = {
@@ -494,6 +536,8 @@ def serialize_portal_review_record(record: models.PortalFileReviewRecord, includ
         "checklist_id": record.checklist_id,
         "checklist_name": record.checklist_name,
         "rule_count": record.rule_count,
+        "task_id": record.task_id,
+        "task_status": record.task_status,
         "status": record.status,
         "model": record.model,
         "summary": summary,
@@ -502,6 +546,7 @@ def serialize_portal_review_record(record: models.PortalFileReviewRecord, includ
         "error_message": record.error_message,
         "started_at": record.started_at.isoformat() if record.started_at else None,
         "completed_at": record.completed_at.isoformat() if record.completed_at else None,
+        "duration_seconds": get_portal_review_duration_seconds(record),
         "created_at": record.created_at.isoformat() if record.created_at else None,
         "updated_at": record.updated_at.isoformat() if record.updated_at else None,
         "created_by": record.created_by.username if record.created_by else "",
@@ -519,11 +564,179 @@ def mark_portal_review_record_failed(
 ) -> None:
     if not record:
         return
-    record.status = "failed"
+    set_portal_review_record_finished(record, "failed", "failed")
     record.error_message = str(message)[:2000]
-    record.completed_at = datetime.now()
     db.add(record)
     db.commit()
+
+
+def build_portal_review_response(record: models.PortalFileReviewRecord) -> dict[str, Any]:
+    summary = record.summary or {}
+    pages = record.pages or []
+    return {
+        "success": True,
+        "model": record.model,
+        "record": serialize_portal_review_record(record, include_result=True),
+        "document": {
+            "id": record.document_id,
+            "name": record.document_name,
+            "page_count": record.page_count or len(pages),
+        },
+        "checklist": {
+            "id": record.checklist_id,
+            "name": record.checklist_name,
+            "rule_count": record.rule_count,
+        },
+        "summary": summary,
+        "pages": pages,
+    }
+
+
+def get_portal_task_error_message(exc: Exception) -> str:
+    if isinstance(exc, HTTPException):
+        return str(exc.detail)
+    return str(exc)
+
+
+def review_portal_page_with_rules(
+    ai_service: AIService,
+    document_name: str,
+    page: dict[str, Any],
+    rules: list[dict[str, Any]],
+    fallback_page_number: int,
+) -> dict[str, Any]:
+    page_number = int(page.get("page_number") or fallback_page_number)
+    chunks = split_review_chunks(page.get("text") or "")
+    if not chunks:
+        return {
+            "page_number": page_number,
+            "chunk_count": 0,
+            "summary": "本页无可审查文本。",
+            "risk_level": "low",
+            "issues": [],
+            "raw_response": "",
+        }
+
+    try:
+        response_text = ai_service.call(
+            build_rule_review_messages(document_name, page, chunks, rules),
+            max_tokens=3500,
+            timeout=180,
+        )
+    except Exception as exc:
+        raise RuntimeError(f"大模型审查失败：第{page_number}页，{exc}") from exc
+    return normalize_review_page_result(page_number, chunks, response_text)
+
+
+def review_portal_pages_concurrently(
+    ai_service: AIService,
+    metadata: dict[str, Any],
+    rules: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    pages = list(metadata.get("pages", []))
+    if not pages:
+        return []
+
+    max_workers = min(PORTAL_REVIEW_WORKERS, len(pages))
+    if max_workers <= 1:
+        return [
+            review_portal_page_with_rules(ai_service, metadata.get("original_name") or "", page, rules, index + 1)
+            for index, page in enumerate(pages)
+        ]
+
+    page_results: list[dict[str, Any]] = []
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="portal-review") as executor:
+        futures = [
+            executor.submit(
+                review_portal_page_with_rules,
+                ai_service,
+                metadata.get("original_name") or "",
+                page,
+                rules,
+                index + 1,
+            )
+            for index, page in enumerate(pages)
+        ]
+        for future in as_completed(futures):
+            page_results.append(future.result())
+
+    return sorted(page_results, key=lambda item: int(item.get("page_number") or 0))
+
+
+def run_portal_rule_review_task(record_id: int) -> None:
+    db = SessionLocal()
+    try:
+        review_record = db.query(models.PortalFileReviewRecord).filter(models.PortalFileReviewRecord.id == record_id).first()
+        if not review_record:
+            return
+
+        review_record.task_status = "running"
+        review_record.status = "processing"
+        review_record.error_message = ""
+        review_record.started_at = datetime.now()
+        review_record.completed_at = None
+        review_record.duration_seconds = 0
+        db.add(review_record)
+        db.commit()
+        db.refresh(review_record)
+
+        try:
+            metadata = load_portal_metadata(review_record.document_id)
+            checklist = portal_checklist_query(db).filter(
+                models.FileReviewChecklist.id == review_record.checklist_id,
+                models.FileReviewChecklist.is_deleted.is_(False),
+            ).first()
+            if not checklist:
+                raise ValueError("审查清单不存在")
+
+            checklist_payload = serialize_file_review_checklist(checklist)
+            rules = [compact_rule_for_prompt(rule) for rule in checklist_payload.get("rules", [])]
+            config = get_default_ai_config(db)
+            ai_service = AIService(db, config=config)
+            review_record.model = ai_service.model
+            review_record.rule_count = checklist_payload.get("rule_count") or len(rules)
+            review_record.request_payload = {
+                **(review_record.request_payload or {}),
+                "rule_count": len(rules),
+                "review_workers": PORTAL_REVIEW_WORKERS,
+            }
+            db.add(review_record)
+            db.commit()
+
+            if not rules:
+                raise ValueError("审查清单没有可用规则")
+            if not ai_service.enabled:
+                raise RuntimeError("AI服务未启用或未配置API密钥")
+
+            page_results = review_portal_pages_concurrently(ai_service, metadata, rules)
+
+            issue_count = sum(len(page.get("issues") or []) for page in page_results)
+            risk_order = {"low": 0, "medium": 1, "high": 2}
+            overall_risk = "low"
+            for page in page_results:
+                risk = page.get("risk_level") or "low"
+                if risk_order.get(risk, 0) > risk_order.get(overall_risk, 0):
+                    overall_risk = risk
+
+            review_record.summary = {
+                "page_count": len(page_results),
+                "issue_count": issue_count,
+                "risk_level": overall_risk,
+            }
+            review_record.pages = page_results
+            set_portal_review_record_finished(review_record, "completed", "succeeded")
+            db.add(review_record)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            review_record = (
+                db.query(models.PortalFileReviewRecord)
+                .filter(models.PortalFileReviewRecord.id == record_id)
+                .first()
+            )
+            mark_portal_review_record_failed(db, review_record, get_portal_task_error_message(exc))
+    finally:
+        db.close()
 
 
 @router.get("/knowledge/checklists/")
@@ -633,12 +846,41 @@ def list_portal_review_history(request: Request, db: DbSession, current_user: Cu
         query,
         models.PortalFileReviewRecord,
         request,
-        filter_fields=["status", "checklist_id", "document_extension"],
-        search_fields=["document_name", "checklist_name"],
-        ordering_fields=["created_at", "completed_at", "document_name", "status"],
+        filter_fields=["status", "task_status", "task_id", "checklist_id", "document_extension"],
+        search_fields=["document_name", "checklist_name", "task_id"],
+        ordering_fields=["created_at", "completed_at", "duration_seconds", "document_name", "status", "task_status"],
         default_ordering=["-created_at"],
     )
     return paginate(query, request, lambda record: serialize_portal_review_record(record))
+
+
+@router.get("/reviews/tasks/{task_id}/")
+def retrieve_portal_review_task(task_id: str, db: DbSession, current_user: CurrentUser):
+    try:
+        uuid.UUID(task_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="任务ID格式不正确")
+
+    query = db.query(models.PortalFileReviewRecord).options(selectinload(models.PortalFileReviewRecord.created_by))
+    if not current_user.is_superuser:
+        query = query.filter(models.PortalFileReviewRecord.created_by_id == current_user.id)
+    record = query.filter(models.PortalFileReviewRecord.task_id == task_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="审核任务不存在")
+
+    is_finished = record.task_status in {"succeeded", "failed"}
+    response: dict[str, Any] = {
+        "success": True,
+        "task_id": record.task_id,
+        "task_status": record.task_status,
+        "status": record.status,
+        "done": is_finished,
+        "record": serialize_portal_review_record(record, include_result=is_finished),
+        "error_message": record.error_message,
+    }
+    if record.task_status == "succeeded":
+        response["result"] = build_portal_review_response(record)
+    return response
 
 
 @router.get("/reviews/history/{record_id}/")
@@ -653,7 +895,12 @@ def retrieve_portal_review_history(record_id: int, db: DbSession, current_user: 
 
 
 @router.post("/reviews/rule-review/")
-async def portal_rule_review(request: Request, db: DbSession, current_user: CurrentUser):
+async def portal_rule_review(
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: DbSession,
+    current_user: CurrentUser,
+):
     payload = await request.json()
     document_id = str(payload.get("document_id") or "").strip()
     checklist_id = payload.get("checklist_id")
@@ -673,9 +920,7 @@ async def portal_rule_review(request: Request, db: DbSession, current_user: Curr
         raise HTTPException(status_code=404, detail="审查清单不存在")
 
     checklist_payload = serialize_file_review_checklist(checklist)
-    rules = [compact_rule_for_prompt(rule) for rule in checklist_payload.get("rules", [])]
-    config = get_default_ai_config(db)
-    ai_service = AIService(db, config=config)
+    task_id = str(uuid.uuid4())
     review_record = models.PortalFileReviewRecord(
         document_id=metadata["id"],
         document_name=metadata.get("original_name") or "",
@@ -685,93 +930,31 @@ async def portal_rule_review(request: Request, db: DbSession, current_user: Curr
         word_count=int(metadata.get("word_count") or 0),
         checklist_id=checklist_payload["id"],
         checklist_name=checklist_payload["name"],
-        rule_count=checklist_payload.get("rule_count") or len(rules),
+        rule_count=checklist_payload.get("rule_count") or len(checklist_payload.get("rules", [])),
+        task_id=task_id,
+        task_status="queued",
         status="processing",
-        model=ai_service.model,
+        model="",
+        started_at=datetime.now(),
         request_payload={
             "document_id": document_id,
             "checklist_id": checklist_id,
-            "rule_count": len(rules),
+            "rule_count": len(checklist_payload.get("rules", [])),
+            "review_workers": PORTAL_REVIEW_WORKERS,
         },
         created_by_id=current_user.id,
     )
     db.add(review_record)
     db.commit()
     db.refresh(review_record)
-
-    if not rules:
-        mark_portal_review_record_failed(db, review_record, "审查清单没有可用规则")
-        raise HTTPException(status_code=400, detail="审查清单没有可用规则")
-    if not ai_service.enabled:
-        mark_portal_review_record_failed(db, review_record, "AI服务未启用或未配置API密钥")
-        raise HTTPException(status_code=503, detail="AI服务未启用或未配置API密钥")
-
-    page_results: list[dict[str, Any]] = []
-    for page in metadata.get("pages", []):
-        page_number = int(page.get("page_number") or len(page_results) + 1)
-        chunks = split_review_chunks(page.get("text") or "")
-        if not chunks:
-            page_results.append(
-                {
-                    "page_number": page_number,
-                    "chunk_count": 0,
-                    "summary": "本页无可审查文本。",
-                    "risk_level": "low",
-                    "issues": [],
-                    "raw_response": "",
-                }
-            )
-            continue
-
-        try:
-            response_text = ai_service.call(
-                build_rule_review_messages(metadata.get("original_name") or "", page, chunks, rules),
-                max_tokens=3500,
-                timeout=180,
-            )
-        except Exception as exc:
-            error_message = f"大模型审查失败：第{page_number}页，{exc}"
-            mark_portal_review_record_failed(db, review_record, error_message)
-            raise HTTPException(status_code=502, detail=error_message) from exc
-        page_results.append(normalize_review_page_result(page_number, chunks, response_text))
-
-    issue_count = sum(len(page.get("issues") or []) for page in page_results)
-    risk_order = {"low": 0, "medium": 1, "high": 2}
-    overall_risk = "low"
-    for page in page_results:
-        risk = page.get("risk_level") or "low"
-        if risk_order.get(risk, 0) > risk_order.get(overall_risk, 0):
-            overall_risk = risk
-
-    summary = {
-        "page_count": len(page_results),
-        "issue_count": issue_count,
-        "risk_level": overall_risk,
-    }
-    review_record.status = "completed"
-    review_record.summary = summary
-    review_record.pages = page_results
-    review_record.completed_at = datetime.now()
-    db.add(review_record)
-    db.commit()
-    db.refresh(review_record)
-
+    background_tasks.add_task(run_portal_rule_review_task, review_record.id)
     return {
         "success": True,
-        "model": ai_service.model,
+        "message": "审核任务已创建",
+        "task_id": task_id,
+        "task_status": review_record.task_status,
+        "status": review_record.status,
         "record": serialize_portal_review_record(review_record),
-        "document": {
-            "id": metadata["id"],
-            "name": metadata["original_name"],
-            "page_count": metadata.get("page_count") or len(page_results),
-        },
-        "checklist": {
-            "id": checklist_payload["id"],
-            "name": checklist_payload["name"],
-            "rule_count": checklist_payload.get("rule_count") or len(rules),
-        },
-        "summary": summary,
-        "pages": page_results,
     }
 
 

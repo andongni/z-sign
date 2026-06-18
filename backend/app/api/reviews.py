@@ -599,7 +599,12 @@ def get_available_models(request: Request, _: CurrentUser):
     ]
     return {
         "provider": provider,
-        "models": siliconflow_models if provider == "siliconflow" else [{"value": "deepseek-v4-pro", "label": "deepseek-v4-pro"}],
+        "models": siliconflow_models if provider == "siliconflow" else [
+            {"value": "deepseek-v4-pro", "label": "deepseek-v4-pro"},
+            {"value": "deepseek-v4-flash", "label": "deepseek-v4-flash"},
+            {"value": "gpt-5.4", "label": "gpt-5.4"},
+            {"value": "gpt-5.5", "label": "gpt-5.5"}
+        ],
     }
 
 

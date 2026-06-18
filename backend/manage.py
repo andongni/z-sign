@@ -61,7 +61,7 @@ def runserver(args: argparse.Namespace) -> None:
             port = int(raw_port)
         else:
             port = int(raw)
-    uvicorn.run("app.main:app", host=host, port=port, reload=args.reload)
+    uvicorn.run("app.main:app", host=host, port=port, reload=args.reload,workers=2)
 
 
 def build_parser() -> argparse.ArgumentParser:

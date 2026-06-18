@@ -1,6 +1,9 @@
+import uuid as uuid_lib
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import inspect, text
 
 from app import models  # noqa: F401 - imported so metadata contains all models
 from app.api import auth, contracts, portal, reviews, users
@@ -38,9 +41,48 @@ settings.media_root.mkdir(parents=True, exist_ok=True)
 app.mount(settings.media_url, StaticFiles(directory=str(settings.media_root)), name="media")
 
 
+def ensure_schema_compatibility() -> None:
+    inspector = inspect(engine)
+    if "portal_file_review_record" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("portal_file_review_record")}
+    with engine.begin() as connection:
+        if "duration_seconds" not in columns:
+            connection.execute(
+                text("ALTER TABLE portal_file_review_record ADD COLUMN duration_seconds INTEGER NOT NULL DEFAULT 0")
+            )
+        if "task_id" not in columns:
+            connection.execute(text("ALTER TABLE portal_file_review_record ADD COLUMN task_id VARCHAR(36) NULL"))
+        if "task_status" not in columns:
+            connection.execute(
+                text(
+                    "ALTER TABLE portal_file_review_record "
+                    "ADD COLUMN task_status VARCHAR(20) NOT NULL DEFAULT 'succeeded'"
+                )
+            )
+            connection.execute(
+                text(
+                    "UPDATE portal_file_review_record "
+                    "SET task_status = CASE "
+                    "WHEN status = 'failed' THEN 'failed' "
+                    "WHEN status = 'processing' THEN 'running' "
+                    "ELSE 'succeeded' END"
+                )
+            )
+        rows = list(connection.execute(
+            text("SELECT id FROM portal_file_review_record WHERE task_id IS NULL OR task_id = ''")
+        ).mappings())
+        for row in rows:
+            connection.execute(
+                text("UPDATE portal_file_review_record SET task_id = :task_id WHERE id = :id"),
+                {"task_id": str(uuid_lib.uuid4()), "id": row["id"]},
+            )
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     Base.metadata.create_all(bind=engine)
+    ensure_schema_compatibility()
 
 
 @app.get("/")

@@ -413,6 +413,8 @@ class PortalFileReviewRecord(Base, TimestampMixin):
     checklist_id = Column(BigInt, ForeignKey("rules_file_review_checklist.id"), nullable=True)
     checklist_name = Column(String(100), default="", nullable=False)
     rule_count = Column(Integer, default=0, nullable=False)
+    task_id = Column(String(36), unique=True, nullable=True, index=True)
+    task_status = Column(String(20), default="queued", nullable=False)
     status = Column(String(20), default="processing", nullable=False)
     model = Column(String(100), default="", nullable=False)
     summary = Column(JSON, nullable=True)
@@ -421,6 +423,7 @@ class PortalFileReviewRecord(Base, TimestampMixin):
     error_message = Column(Text, default="", nullable=False)
     started_at = Column(DateTime, default=now, nullable=False)
     completed_at = Column(DateTime, nullable=True)
+    duration_seconds = Column(Integer, default=0, nullable=False)
     created_by_id = Column(BigInt, ForeignKey("users_user.id"), nullable=True)
 
     checklist = relationship("FileReviewChecklist")

@@ -156,6 +156,14 @@
         >
           <el-table-column prop="document_name" label="文档名称" min-width="260" show-overflow-tooltip />
           <el-table-column prop="checklist_name" label="审查清单" min-width="180" show-overflow-tooltip />
+          <el-table-column prop="task_id" label="任务ID" min-width="190" show-overflow-tooltip />
+          <el-table-column label="审核任务状态" width="130">
+            <template #default="{ row }">
+              <el-tag :type="getReviewTaskStatusTagType(row.task_status)" effect="plain" size="small">
+                {{ getReviewTaskStatusText(row.task_status) }}
+              </el-tag>
+            </template>
+          </el-table-column>
           <el-table-column label="风险等级" width="110">
             <template #default="{ row }">
               <el-tag :type="getRiskTagType(row.risk_level)" effect="plain" size="small">
@@ -170,6 +178,11 @@
               <el-tag :type="getReviewStatusTagType(row.status)" effect="plain" size="small">
                 {{ getReviewStatusText(row.status) }}
               </el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column label="耗时" width="110">
+            <template #default="{ row }">
+              {{ formatReviewDuration(row.duration_seconds, row.started_at, row.completed_at, row.status) }}
             </template>
           </el-table-column>
           <el-table-column prop="created_at" label="发起时间" min-width="170">
@@ -212,16 +225,25 @@
             <el-icon><DocumentChecked /></el-icon>
             {{ currentFileName }}
           </el-tag>
-          <span>智能审查任务</span>
+          <span>{{ isReviewHistoryDetail ? '历史审查详情' : '智能审查任务' }}</span>
         </div>
         <div class="workplace-actions">
-          <el-button @click="openReviewHistory">历史记录</el-button>
-          <el-button type="primary" class="upload-button" :loading="uploadLoading" @click="openUploadDialog">
+          <el-button @click="openReviewHistory">
+            {{ isReviewHistoryDetail ? '返回历史记录' : '历史记录' }}
+          </el-button>
+          <el-button
+            v-if="!isReviewHistoryDetail"
+            type="primary"
+            class="upload-button"
+            :loading="uploadLoading"
+            @click="openUploadDialog"
+          >
             <el-icon><Plus /></el-icon>
             上传文档
           </el-button>
         </div>
         <input
+          v-if="!isReviewHistoryDetail"
           ref="fileInputRef"
           class="upload-input"
           type="file"
@@ -461,7 +483,7 @@
 
           <el-form label-position="top" class="review-form">
             <el-form-item label="文档类型">
-              <el-select v-model="contractType" class="full-control">
+              <el-select v-model="contractType" class="full-control" :disabled="isReviewHistoryDetail">
                 <el-option label="买卖文档" value="sale" />
                 <el-option label="服务文档" value="service" />
                 <el-option label="租赁文档" value="lease" />
@@ -470,7 +492,7 @@
             </el-form-item>
 
             <el-form-item label="审查尺度">
-              <el-radio-group v-model="strictness" class="segmented-group">
+              <el-radio-group v-model="strictness" class="segmented-group" :disabled="isReviewHistoryDetail">
                 <el-radio-button label="strong">强势</el-radio-button>
                 <el-radio-button label="weak">弱势</el-radio-button>
                 <el-radio-button label="balanced">均衡</el-radio-button>
@@ -479,17 +501,26 @@
 
             <el-form-item label="选择审查清单">
               <div v-if="selectedReviewChecklist" class="selected-checklist-card">
-                <div>
-                  <span>已选择</span>
-                  <strong>{{ selectedReviewChecklist.name }}</strong>
-                  <small>
-                    {{ selectedReviewChecklist.rule_count || 0 }} 条规则 ·
-                    {{ formatDateTime(selectedReviewChecklist.updated_at) }}
-                  </small>
-                </div>
-                <el-button link type="primary" @click="openChecklistPicker">更换</el-button>
+                <span class="selected-checklist-label">已选择</span>
+                <strong class="selected-checklist-name">{{ selectedReviewChecklist.name }}</strong>
+                <small
+                  class="selected-checklist-meta"
+                  :title="formatDateTime(selectedReviewChecklist.updated_at)"
+                >
+                  {{ selectedReviewChecklist.rule_count || 0 }} 条规则 ·
+                  {{ formatDateTime(selectedReviewChecklist.updated_at) }}
+                </small>
+                <el-button
+                  v-if="!isReviewHistoryDetail"
+                  class="selected-checklist-change"
+                  link
+                  type="primary"
+                  @click="openChecklistPicker"
+                >
+                  更换
+                </el-button>
               </div>
-              <div class="checklist-actions">
+              <div v-if="!isReviewHistoryDetail" class="checklist-actions">
                 <button class="checklist-action active" type="button" @click="openChecklistPicker">
                   <span class="action-icon">
                     <el-icon><Grid /></el-icon>
@@ -638,7 +669,7 @@
         </el-card>
       </div>
 
-      <footer class="review-footer">
+      <footer v-if="!isReviewHistoryDetail" class="review-footer">
         <el-button
           type="primary"
           class="generate-button"
@@ -952,6 +983,7 @@ const overviewError = ref('')
 const reviewLoading = ref(false)
 const reviewError = ref('')
 const reviewResult = ref(null)
+const reviewTaskId = ref('')
 const activeReviewPages = ref([])
 const uploadDialogVisible = ref(false)
 const pendingFile = ref(null)
@@ -969,6 +1001,7 @@ const checklistPickerKeyword = ref('')
 const reviewHistoryLoading = ref(false)
 const reviewHistoryKeyword = ref('')
 const reviewHistoryItems = ref([])
+const isReviewHistoryDetail = ref(false)
 const portalChecklists = ref([])
 const portalRules = ref([])
 const currentChecklist = ref(null)
@@ -1089,8 +1122,10 @@ const navItems = shallowRef([
 ])
 
 const pipelineStages = ['理解文档', '提取信息', '总结内容', '完成']
+const reviewTaskPollingInterval = 3000
 let overviewRequestId = 0
 let reviewRequestId = 0
+let reviewPollingTimer = null
 
 const getReviewPanelMaxWidth = () => {
   if (typeof window === 'undefined') return reviewPanelDefaultWidth
@@ -1145,6 +1180,7 @@ onMounted(async () => {
 })
 
 onBeforeUnmount(() => {
+  stopReviewPolling(true)
   stopReviewPanelResize()
   window.removeEventListener('resize', refreshReviewPanelLimits)
 })
@@ -1166,6 +1202,7 @@ const switchNav = (key) => {
 }
 
 const openUploadDialog = () => {
+  if (isReviewHistoryDetail.value) return
   uploadDialogVisible.value = true
   pendingFile.value = null
   isDragOver.value = false
@@ -1184,9 +1221,20 @@ const resolveApiUrl = (path) => {
   return `${apiBaseUrl}${path.startsWith('/') ? path : `/${path}`}`
 }
 
+const stopReviewPolling = (clearTaskId = false) => {
+  if (reviewPollingTimer) {
+    window.clearTimeout(reviewPollingTimer)
+    reviewPollingTimer = null
+  }
+  if (clearTaskId) {
+    reviewTaskId.value = ''
+  }
+}
+
 const clearReviewResult = (cancelPending = false) => {
   if (cancelPending) {
     reviewRequestId += 1
+    stopReviewPolling(true)
   }
   reviewLoading.value = false
   reviewError.value = ''
@@ -1195,6 +1243,7 @@ const clearReviewResult = (cancelPending = false) => {
 }
 
 const resetReviewWorkspace = () => {
+  isReviewHistoryDetail.value = false
   uploadedDocument.value = null
   pendingFile.value = null
   currentPage.value = 1
@@ -1322,6 +1371,30 @@ const formatDateTime = (value) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
+const formatReviewDuration = (seconds, startedAt, completedAt, status) => {
+  let totalSeconds = Number(seconds)
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
+    const start = startedAt ? new Date(startedAt) : null
+    const end = completedAt ? new Date(completedAt) : null
+    if (start && end && !Number.isNaN(start.getTime()) && !Number.isNaN(end.getTime())) {
+      totalSeconds = Math.max(0, Math.floor((end.getTime() - start.getTime()) / 1000))
+    }
+  }
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) {
+    if (status === 'processing') return '进行中'
+    return startedAt && completedAt ? '<1秒' : '-'
+  }
+
+  const secondsPart = Math.floor(totalSeconds % 60)
+  const minutes = Math.floor(totalSeconds / 60)
+  if (minutes < 1) return `${Math.floor(totalSeconds)}秒`
+
+  const minutesPart = minutes % 60
+  const hours = Math.floor(minutes / 60)
+  if (hours < 1) return secondsPart ? `${minutesPart}分${secondsPart}秒` : `${minutesPart}分`
+  return minutesPart ? `${hours}小时${minutesPart}分` : `${hours}小时`
+}
+
 const getRuleTypeText = (type) => {
   const map = {
     general: '通用规则',
@@ -1371,6 +1444,26 @@ const getReviewStatusTagType = (status) => {
   return map[status] || 'info'
 }
 
+const getReviewTaskStatusText = (status) => {
+  const map = {
+    queued: '排队中',
+    running: '审核中',
+    succeeded: '审核成功',
+    failed: '审核失败',
+  }
+  return map[status] || status || '未知'
+}
+
+const getReviewTaskStatusTagType = (status) => {
+  const map = {
+    queued: 'info',
+    running: 'warning',
+    succeeded: 'success',
+    failed: 'danger',
+  }
+  return map[status] || 'info'
+}
+
 const fetchReviewHistory = async () => {
   if (!isAuthenticated.value) return
   reviewHistoryLoading.value = true
@@ -1403,6 +1496,7 @@ const startNewReview = () => {
 }
 
 const openReviewHistory = () => {
+  isReviewHistoryDetail.value = false
   fileReviewMode.value = 'history'
   fetchReviewHistory()
 }
@@ -1427,7 +1521,9 @@ const openReviewRecord = async (row) => {
     }
 
     resetReviewWorkspace()
+    isReviewHistoryDetail.value = true
     uploadedDocument.value = documentPayload
+    reviewTaskId.value = record.task_id || ''
     selectedReviewChecklist.value = {
       id: record.checklist_id,
       name: record.checklist_name,
@@ -1504,6 +1600,7 @@ const fetchChecklistPickerItems = async () => {
 }
 
 const openChecklistPicker = async () => {
+  if (isReviewHistoryDetail.value) return
   checklistPickerVisible.value = true
   if (!checklistPickerItems.value.length) {
     await fetchChecklistPickerItems()
@@ -1516,6 +1613,7 @@ const handleChecklistPickerSearch = () => {
 }
 
 const selectReviewChecklist = async (row) => {
+  if (isReviewHistoryDetail.value) return
   checklistPickerLoading.value = true
   try {
     const payload = await fetchJson(`/api/portal/knowledge/checklists/${row.id}/`)
@@ -1530,7 +1628,60 @@ const selectReviewChecklist = async (row) => {
   }
 }
 
+const applyReviewResultPayload = (payload) => {
+  reviewResult.value = payload
+  reviewTaskId.value = payload?.record?.task_id || reviewTaskId.value
+  activeReviewPages.value = (payload.pages || [])
+    .slice(0, 2)
+    .map((page) => String(page.page_number))
+}
+
+const pollReviewTask = async (taskId, requestId) => {
+  if (requestId !== reviewRequestId) return
+  try {
+    const payload = await fetchJson(`/api/portal/reviews/tasks/${taskId}/`)
+    if (requestId !== reviewRequestId) return
+
+    reviewTaskId.value = payload.task_id || taskId
+    if (payload.task_status === 'succeeded') {
+      stopReviewPolling(false)
+      if (!payload.result) throw new Error('审核任务已完成，但未返回审查结果')
+      applyReviewResultPayload(payload.result)
+      reviewLoading.value = false
+      fetchReviewHistory()
+      ElMessage.success('规则审查完成')
+      return
+    }
+
+    if (payload.task_status === 'failed') {
+      stopReviewPolling(false)
+      reviewLoading.value = false
+      reviewError.value = payload.error_message || payload.record?.error_message || '规则审查失败'
+      fetchReviewHistory()
+      ElMessage.error(reviewError.value)
+      return
+    }
+
+    reviewPollingTimer = window.setTimeout(() => {
+      pollReviewTask(taskId, requestId)
+    }, reviewTaskPollingInterval)
+  } catch (error) {
+    if (requestId !== reviewRequestId) return
+    stopReviewPolling(false)
+    reviewLoading.value = false
+    reviewError.value = error.message || '查询审核任务状态失败'
+    ElMessage.error(reviewError.value)
+  }
+}
+
+const startReviewTaskPolling = (taskId, requestId) => {
+  stopReviewPolling(false)
+  reviewTaskId.value = taskId
+  pollReviewTask(taskId, requestId)
+}
+
 const applySelectedChecklist = async () => {
+  if (isReviewHistoryDetail.value) return
   if (!uploadedDocument.value) {
     ElMessage.warning('请先上传文档')
     return
@@ -1541,6 +1692,8 @@ const applySelectedChecklist = async () => {
   }
 
   const requestId = ++reviewRequestId
+  let keepPolling = false
+  stopReviewPolling(true)
   reviewLoading.value = true
   reviewError.value = ''
   reviewResult.value = null
@@ -1559,10 +1712,15 @@ const applySelectedChecklist = async () => {
     })
     if (!payload.success) throw new Error(payload.detail || payload.error || payload.message || '规则审查失败')
     if (requestId !== reviewRequestId) return
-    reviewResult.value = payload
-    activeReviewPages.value = (payload.pages || [])
-      .slice(0, 2)
-      .map((page) => String(page.page_number))
+    if (payload.task_id) {
+      keepPolling = true
+      fetchReviewHistory()
+      startReviewTaskPolling(payload.task_id, requestId)
+      ElMessage.success('审核任务已创建')
+      return
+    }
+
+    applyReviewResultPayload(payload)
     fetchReviewHistory()
     ElMessage.success('规则审查完成')
   } catch (error) {
@@ -1570,7 +1728,7 @@ const applySelectedChecklist = async () => {
     reviewError.value = error.message || '规则审查失败'
     ElMessage.error(reviewError.value)
   } finally {
-    if (requestId === reviewRequestId) {
+    if (requestId === reviewRequestId && !keepPolling) {
       reviewLoading.value = false
     }
   }
@@ -1728,6 +1886,7 @@ const generateDocumentOverview = async (document) => {
 }
 
 const confirmUpload = async () => {
+  if (isReviewHistoryDetail.value) return
   if (!pendingFile.value || !validateUploadFile(pendingFile.value)) return
   const formData = new FormData()
   formData.append('file', pendingFile.value)
@@ -3168,7 +3327,7 @@ const zoomIn = () => {
 }
 
 .review-form :deep(.el-form-item) {
-  margin-bottom: 15px;
+  margin-bottom: 11px;
 }
 
 .review-form :deep(.el-form-item:last-child) {
@@ -3177,12 +3336,20 @@ const zoomIn = () => {
 
 .review-form :deep(.el-form-item__label) {
   color: #485266;
-  font-size: 12px;
+  margin-bottom: 5px;
+  font-size: 11.5px;
   font-weight: 700;
+  line-height: 1.2;
 }
 
 .full-control {
   width: 100%;
+}
+
+.review-form :deep(.el-select__wrapper),
+.review-form :deep(.el-input__wrapper) {
+  min-height: 30px;
+  font-size: 12px;
 }
 
 .segmented-group {
@@ -3193,11 +3360,13 @@ const zoomIn = () => {
 
 .segmented-group :deep(.el-radio-button__inner) {
   width: 100%;
-  height: 34px;
+  height: 30px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  padding: 0 10px;
   border-color: var(--portal-border-strong);
+  font-size: 12px;
   box-shadow: none;
 }
 
@@ -3210,16 +3379,18 @@ const zoomIn = () => {
 .checklist-actions {
   width: 100%;
   display: grid;
-  gap: 10px;
+  gap: 8px;
 }
 
 .checklist-action {
-  min-height: 82px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 7px;
-  padding: 14px;
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 9px;
+  row-gap: 2px;
+  padding: 9px 10px;
   text-align: left;
   border: 1px solid var(--portal-border);
   border-radius: 8px;
@@ -3235,53 +3406,72 @@ const zoomIn = () => {
 }
 
 .selected-checklist-card {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 10px;
-  padding: 12px 14px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 2px;
+  margin-bottom: 7px;
+  padding: 6px 8px;
   border: 1px solid rgba(22, 119, 255, 0.18);
   border-radius: 8px;
   background: var(--portal-primary-mist);
 }
 
-.selected-checklist-card > div {
+.selected-checklist-label {
+  grid-row: 1 / span 2;
+  padding: 1px 6px;
+  color: #42628b;
+  font-size: 10.5px;
+  font-weight: 700;
+  line-height: 18px;
+  border-radius: 999px;
+  background: #eaf2ff;
+}
+
+.selected-checklist-name {
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.selected-checklist-card span,
-.selected-checklist-card small {
-  color: var(--portal-muted);
-  font-size: 11.5px;
-}
-
-.selected-checklist-card strong {
   overflow: hidden;
   color: #202638;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 800;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
+.selected-checklist-meta {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--portal-muted);
+  font-size: 10.5px;
+  font-style: normal;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.selected-checklist-change {
+  grid-row: 1 / span 2;
+  min-height: 24px;
+  padding: 0 2px;
+  font-size: 12px;
+}
+
 .selected-rule-preview {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 10px;
+  gap: 5px;
+  margin-top: 8px;
 }
 
 .selected-rule-preview span,
 .selected-rule-preview em {
   max-width: 100%;
   overflow: hidden;
-  padding: 3px 7px;
+  padding: 2px 6px;
   color: #526074;
-  font-size: 11px;
+  font-size: 10.5px;
   font-style: normal;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -3290,25 +3480,34 @@ const zoomIn = () => {
 }
 
 .action-icon {
-  width: 30px;
-  height: 30px;
+  grid-row: 1 / span 2;
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   color: var(--portal-primary);
-  border-radius: 8px;
+  border-radius: 7px;
   background: var(--portal-primary-soft);
 }
 
 .checklist-action strong {
+  min-width: 0;
+  overflow: hidden;
   color: #22283a;
   font-size: 12.5px;
-  line-height: 1.35;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .checklist-action small {
+  min-width: 0;
+  overflow: hidden;
   color: var(--portal-muted);
-  font-size: 11.5px;
-  line-height: 1.5;
+  font-size: 11px;
+  line-height: 1.2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .checklist-action em {
@@ -4124,8 +4323,26 @@ const zoomIn = () => {
   background: #fbfcfe;
 }
 
+.config-card :deep(.el-card__header) {
+  min-height: 42px;
+  padding: 10px 14px;
+}
+
+.config-card :deep(.el-card__body) {
+  padding: 12px 14px 14px;
+}
+
 .card-title {
   color: var(--portal-text);
+}
+
+.config-card .card-title {
+  gap: 6px;
+  font-size: 13px;
+}
+
+.config-card .card-title .el-icon {
+  font-size: 15px;
 }
 
 .card-title .el-icon {
