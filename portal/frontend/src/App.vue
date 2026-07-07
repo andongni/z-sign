@@ -3993,12 +3993,29 @@ const zoomIn = () => {
 
 .portal-sidebar {
   padding: 20px 12px;
-  border-right: 1px solid #e2e8f0;
-  background: #f6f8fc;
-  box-shadow: none;
+  border-right: 1px solid rgba(34, 211, 238, 0.2);
+  background:
+    radial-gradient(circle at 18% 8%, rgba(14, 165, 233, 0.24), transparent 28%),
+    radial-gradient(circle at 92% 42%, rgba(6, 182, 212, 0.12), transparent 32%),
+    linear-gradient(180deg, #03112f 0%, #041b45 48%, #020817 100%);
+  box-shadow: inset -1px 0 0 rgba(148, 163, 184, 0.1);
+}
+
+.portal-sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(125, 211, 252, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(125, 211, 252, 0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.7), transparent 86%);
 }
 
 .portal-brand {
+  position: relative;
+  z-index: 1;
   min-height: 42px;
   margin-bottom: 18px;
   padding: 0 4px;
@@ -4007,54 +4024,63 @@ const zoomIn = () => {
 .brand-mark {
   width: 36px;
   height: 36px;
-  color: #1d4ed8;
+  color: #dff8ff;
   font-size: 18px;
-  border: 1px solid #dce6f4;
+  border: 1px solid rgba(34, 211, 238, 0.38);
   border-radius: 10px;
-  background: #ffffff;
-  box-shadow: none;
+  background: linear-gradient(145deg, rgba(8, 145, 178, 0.9), rgba(30, 64, 175, 0.82));
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.08) inset,
+    0 10px 30px rgba(34, 211, 238, 0.18);
 }
 
 .brand-copy strong {
-  color: #182235;
+  color: #f8fbff;
   font-size: 20px;
-  letter-spacing: 0;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 16px rgba(34, 211, 238, 0.32);
 }
 
 .brand-copy span {
-  color: #8a97ab;
+  color: rgba(186, 230, 253, 0.72);
   font-size: 11px;
 }
 
 .sidebar-toggle {
   width: 28px;
   height: 28px;
-  color: #7b8798;
-  border-color: #dce4ef;
-  background: #ffffff;
+  color: rgba(203, 213, 225, 0.82);
+  border-color: rgba(34, 211, 238, 0.22);
+  background: rgba(2, 23, 58, 0.86);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
 }
 
 .sidebar-toggle:hover {
-  color: var(--portal-primary);
-  border-color: #bfd2f5;
-  background: #f0f5ff;
+  color: #ffffff;
+  border-color: rgba(34, 211, 238, 0.56);
+  background: rgba(8, 47, 73, 0.78);
 }
 
 .global-nav {
-  gap: 4px;
+  position: relative;
+  z-index: 1;
+  gap: 6px;
 }
 
 .nav-item {
   position: relative;
   height: 40px;
   padding: 0 10px;
-  color: #56657a;
-  border: 0;
-  border-radius: 8px;
+  color: rgba(203, 213, 225, 0.82);
+  border: 1px solid transparent;
+  border-radius: 9px;
   background: transparent;
+  overflow: hidden;
   transition:
     color 0.18s ease,
+    border-color 0.18s ease,
     background-color 0.18s ease,
+    box-shadow 0.18s ease,
     transform 0.14s ease;
 }
 
@@ -4067,20 +4093,43 @@ const zoomIn = () => {
   width: 3px;
   border-radius: 999px;
   background: transparent;
+  box-shadow: none;
+}
+
+.nav-item::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: linear-gradient(90deg, rgba(34, 211, 238, 0.13), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.18s ease;
 }
 
 .nav-item .el-icon {
-  color: #8a97ab;
+  position: relative;
+  z-index: 1;
+  color: rgba(125, 211, 252, 0.74);
   font-size: 17px;
 }
 
+.nav-item span {
+  position: relative;
+  z-index: 1;
+}
+
 .nav-item:hover {
-  color: #182235;
-  background: #ffffff;
+  color: #ffffff;
+  border-color: rgba(34, 211, 238, 0.2);
+  background: rgba(8, 47, 73, 0.58);
+}
+
+.nav-item:hover::after {
+  opacity: 1;
 }
 
 .nav-item:hover .el-icon {
-  color: var(--portal-primary);
+  color: #67e8f9;
 }
 
 .nav-item:active {
@@ -4088,50 +4137,60 @@ const zoomIn = () => {
 }
 
 .nav-item.active {
-  color: var(--portal-primary);
-  border-color: transparent;
-  background: #eaf2ff;
-  box-shadow: none;
+  color: #ffffff;
+  border-color: rgba(34, 211, 238, 0.34);
+  background: linear-gradient(90deg, rgba(30, 64, 175, 0.7), rgba(8, 145, 178, 0.28));
+  box-shadow:
+    0 10px 28px rgba(6, 182, 212, 0.18),
+    0 0 0 1px rgba(255, 255, 255, 0.06) inset;
 }
 
 .nav-item.active::before {
-  background: var(--portal-primary);
+  background: #67e8f9;
+  box-shadow: 0 0 16px rgba(103, 232, 249, 0.72);
+}
+
+.nav-item.active::after {
+  opacity: 1;
 }
 
 .nav-item.active .el-icon {
-  color: var(--portal-primary);
+  color: #e0f2fe;
 }
 
 .profile-card {
+  position: relative;
+  z-index: 1;
   gap: 9px;
   margin: auto 2px 0;
   padding: 12px 4px 0;
   border: 0;
-  border-top: 1px solid #e5ebf3;
+  border-top: 1px solid rgba(34, 211, 238, 0.18);
   border-radius: 0;
   background: transparent;
 }
 
 .profile-avatar {
-  --el-avatar-bg-color: #edf2f8;
-  color: #52627a;
+  --el-avatar-bg-color: rgba(8, 145, 178, 0.18);
+  color: #e0f2fe;
+  border: 1px solid rgba(34, 211, 238, 0.28);
 }
 
 .profile-copy span {
-  color: #283449;
+  color: #f8fbff;
 }
 
 .profile-copy strong {
-  color: #8a97ab;
+  color: rgba(186, 230, 253, 0.66);
 }
 
 .logout-button {
-  color: #8a97ab;
+  color: rgba(186, 230, 253, 0.7);
 }
 
 .logout-button:hover {
-  color: var(--portal-primary);
-  background: #eaf2ff;
+  color: #ffffff;
+  background: rgba(8, 47, 73, 0.72);
 }
 
 .review-history-workplace,
